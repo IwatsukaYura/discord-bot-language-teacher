@@ -1,0 +1,8 @@
+services:
+  bot:
+    build: .
+    container_name: language-teacher-bot
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
