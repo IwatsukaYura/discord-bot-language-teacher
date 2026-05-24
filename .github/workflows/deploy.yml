@@ -1,0 +1,68 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-northeast-1
+  EC2_INSTANCE_ID: i-08d32da47bbc237aa
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Trigger deploy on EC2 via SSM Send-Command
+        id: ssm
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy commit ${{ github.sha }}" \
+            --parameters 'commands=["bash /opt/language-teacher/scripts/deploy.sh"]' \
+            --query "Command.CommandId" \
+            --output text)
+          echo "Command ID: $COMMAND_ID"
+          echo "command_id=$COMMAND_ID" >> $GITHUB_OUTPUT
+
+      - name: Poll for completion and show output
+        run: |
+          CMD_ID="${{ steps.ssm.outputs.command_id }}"
+
+          while true; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --query "Status" \
+              --output text 2>/dev/null || echo "Pending")
+
+            echo "Status: $STATUS"
+
+            if [[ "$STATUS" == "Success" || "$STATUS" == "Failed" || "$STATUS" == "Cancelled" || "$STATUS" == "TimedOut" ]]; then
+              break
+            fi
+            sleep 5
+          done
+
+          echo "=========================================="
+          echo "          SSM COMMAND OUTPUT             "
+          echo "=========================================="
+          aws ssm get-command-invocation \
+            --command-id "$CMD_ID" \
+            --instance-id "$EC2_INSTANCE_ID"
+
+          if [[ "$STATUS" != "Success" ]]; then
+            echo "::error::Deploy failed with status: $STATUS"
+            exit 1
+          fi
