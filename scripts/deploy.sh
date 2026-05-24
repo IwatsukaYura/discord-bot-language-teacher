@@ -30,6 +30,10 @@ EN_LEARNER_NAME=$(get_param "$PARAM_PREFIX/en-learner-name")
 JA_LEARNER_NAME=$(get_param "$PARAM_PREFIX/ja-learner-name")
 EOF
 
+echo "==> Ensuring data directory exists with correct ownership..."
+mkdir -p data
+chown -R 1000:1000 data
+
 echo "==> Building and starting container..."
 docker compose up -d --build
 
