@@ -50,7 +50,7 @@ def _color_for(target_lang: str) -> discord.Color:
 def _build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> discord.Embed:
     reading = result.get("reading", "")
     reading_part = f"【{reading}】" if reading else ""
-    title = f"📕 {result['word']}{reading_part} ({result['part_of_speech']})"
+    title = f"📘 {result['word']}{reading_part} ({result['part_of_speech']})"
     embed = discord.Embed(title=_truncate(title, _EMBED_TITLE_MAX), color=_color_for(target_lang))
 
     is_ja = explanation_lang == "ja"
