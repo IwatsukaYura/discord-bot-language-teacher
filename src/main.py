@@ -27,6 +27,7 @@ _CAMBRIDGE_URL = "https://dictionary.cambridge.org/dictionary/english/{word}"
 _JISHO_URL = "https://jisho.org/search/{word}"
 _EMBED_FIELD_MAX = 1024
 _EMBED_TITLE_MAX = 200
+_GRIZZO_COMMENT_MAX = 300
 
 
 def _contains_japanese(text: str) -> bool:
@@ -53,6 +54,10 @@ def _build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> 
     title = f"📘 {result['word']}{reading_part} ({result['part_of_speech']})"
     embed = discord.Embed(title=_truncate(title, _EMBED_TITLE_MAX), color=_color_for(target_lang))
 
+    comment = result.get("grizzo_comment", "").strip()
+    if comment:
+        embed.description = _truncate(comment, _GRIZZO_COMMENT_MAX)
+
     is_ja = explanation_lang == "ja"
     embed.add_field(name="訳" if is_ja else "Translation", value=_truncate(result["translation"]), inline=False)
     embed.add_field(name="意味" if is_ja else "Meaning", value=_truncate(result["meaning"]), inline=False)
@@ -73,6 +78,10 @@ def _build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> 
 def _build_sentence_embed(result: dict, target_lang: str, explanation_lang: str) -> discord.Embed:
     title = f"📝 {_truncate(result['source_text'], _EMBED_TITLE_MAX)}"
     embed = discord.Embed(title=title, color=_color_for(target_lang))
+
+    comment = result.get("grizzo_comment", "").strip()
+    if comment:
+        embed.description = _truncate(comment, _GRIZZO_COMMENT_MAX)
 
     is_ja = explanation_lang == "ja"
     embed.add_field(name="訳" if is_ja else "Translation", value=_truncate(result["translation"]), inline=False)
@@ -100,6 +109,10 @@ def _build_grammar_embed(result: dict) -> discord.Embed:
     explanation_lang = result["explanation_lang"]
     title = f"📚 {_truncate(result['topic'], _EMBED_TITLE_MAX)}"
     embed = discord.Embed(title=title, color=_color_for(target_lang))
+
+    comment = result.get("grizzo_comment", "").strip()
+    if comment:
+        embed.description = _truncate(comment, _GRIZZO_COMMENT_MAX)
 
     is_ja = explanation_lang == "ja"
     embed.add_field(

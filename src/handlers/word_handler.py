@@ -4,6 +4,7 @@ import re
 from urllib.parse import quote
 
 from llm import gemini_client
+from llm.persona import GRIZZO_PERSONA_BLOCK
 
 logger = logging.getLogger(__name__)
 
@@ -16,21 +17,23 @@ def _build_system_prompt(target_lang: str, explanation_lang: str) -> str:
         if target_lang == "ja"
         else ""
     )
-    return f"""You are a {target_name} language teacher for {explanation_name} speakers.
-Given a single {target_name} word, return a JSON object with this exact structure:
+    task_block = f"""Your task: explain a single {target_name} word for {explanation_name} speakers.
+Return a JSON object with this exact structure:
 
 {{
-  "translation": "translation in {explanation_name}",{reading_field}
+  "translation": "translation in {explanation_name} — neutral reference tone, no character voice",{reading_field}
   "part_of_speech": "noun / verb / adjective / etc.",
-  "meaning": "brief meaning in {explanation_name}",
-  "usage": "1-2 short notes about usage or collocations in {explanation_name}",
+  "meaning": "brief meaning in {explanation_name} — neutral reference-book tone, no character voice (no 〜だよ / 〜だね / 一人称)",
+  "usage": "1-2 short notes about usage or collocations in {explanation_name} — neutral reference-book tone, no character voice (no 〜だよ / 〜だね / 一人称)",
   "examples": [
-    {{"source": "example sentence in {target_name}", "translation": "translation in {explanation_name}"}},
-    {{"source": "another example", "translation": "translation"}}
-  ]
+    {{"source": "example sentence in {target_name}", "translation": "translation in {explanation_name} — neutral tone"}},
+    {{"source": "another example", "translation": "translation — neutral tone"}}
+  ],
+  "grizzo_comment": "ぐりぞー's short in-character reaction to this specific word, in {explanation_name}, following the persona rules above"
 }}
 
 Provide 2 example sentences. Respond ONLY with the JSON object, no extra text, no markdown fences."""
+    return f"{GRIZZO_PERSONA_BLOCK}\n\n{task_block}"
 
 
 def _strip_code_fences(text: str) -> str:
@@ -67,5 +70,6 @@ async def handle_word(
         "meaning": parsed["meaning"],
         "usage": parsed["usage"],
         "examples": parsed["examples"],
+        "grizzo_comment": parsed.get("grizzo_comment", ""),
         "dictionary_url": _build_dictionary_url(word, dictionary_url_template),
     }

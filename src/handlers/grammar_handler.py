@@ -3,12 +3,12 @@ import logging
 import re
 
 from llm import gemini_client
+from llm.persona import GRIZZO_PERSONA_BLOCK
 
 logger = logging.getLogger(__name__)
 
 
-_SYSTEM_PROMPT = """You are a grammar teacher for learners of English and Japanese.
-The user is asking a question about a grammar pattern. Your job:
+_TASK_BLOCK = """Your task: explain a grammar pattern for a learner.
 
 1. Identify the grammar pattern they're asking about.
 2. Determine the language of that pattern (English or Japanese) → target_lang.
@@ -23,14 +23,17 @@ Return a JSON object with this exact structure:
   "topic": "the grammar pattern, e.g. '〜てしまう' or 'would have p.p.'",
   "target_lang": "en" or "ja",
   "explanation_lang": "en" or "ja",
-  "explanation": "clear explanation in explanation_lang (keep under ~600 characters)",
+  "explanation": "clear explanation in explanation_lang (keep under ~600 characters) — neutral reference-book tone, no character voice (no 〜だよ / 〜だね / 一人称)",
   "examples": [
-    {"source": "an example using the pattern", "translation": "translation in explanation_lang"}
+    {"source": "an example using the pattern", "translation": "translation in explanation_lang — neutral tone"}
   ],
-  "related": "related grammar notes in explanation_lang (under ~200 chars, or empty string)"
+  "related": "related grammar notes in explanation_lang (under ~200 chars, or empty string) — neutral reference-book tone, no character voice",
+  "grizzo_comment": "ぐりぞー's short in-character reaction to this grammar pattern, in explanation_lang, following the persona rules above"
 }
 
 Provide 2-3 examples. Respond ONLY with the JSON object, no markdown fences, no extra text."""
+
+_SYSTEM_PROMPT = f"{GRIZZO_PERSONA_BLOCK}\n\n{_TASK_BLOCK}"
 
 
 def _strip_code_fences(text: str) -> str:
@@ -56,4 +59,5 @@ async def handle_grammar(text: str) -> dict:
         "explanation": parsed["explanation"],
         "examples": parsed.get("examples", []),
         "related": parsed.get("related", ""),
+        "grizzo_comment": parsed.get("grizzo_comment", ""),
     }
