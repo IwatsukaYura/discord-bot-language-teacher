@@ -45,6 +45,16 @@ def _color_for(target_lang: str) -> discord.Color:
     return discord.Color.blue() if target_lang == "en" else discord.Color.red()
 
 
+def _format_translation_entry(entry: dict) -> str:
+    text = entry["text"]
+    reading = entry.get("reading", "")
+    return f"{text}【{reading}】" if reading else text
+
+
+def _format_translations(translations: list[dict]) -> str:
+    return " / ".join(_format_translation_entry(t) for t in translations)
+
+
 def _build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> discord.Embed:
     reading = result.get("reading", "")
     reading_part = f"【{reading}】" if reading else ""
@@ -52,20 +62,49 @@ def _build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> 
     embed = discord.Embed(title=_truncate(title, _EMBED_TITLE_MAX), color=_color_for(target_lang))
 
     is_ja = explanation_lang == "ja"
-    embed.add_field(name="訳" if is_ja else "Translation", value=_truncate(result["translation"]), inline=False)
-    embed.add_field(name="意味" if is_ja else "Meaning", value=_truncate(result["meaning"]), inline=False)
-    embed.add_field(name="使い方" if is_ja else "Usage", value=_truncate(result["usage"]), inline=False)
+    senses = result["senses"]
+    multi = len(senses) > 1
 
-    examples_text = "\n\n".join(
-        f"{i+1}. {e['source']}\n    → {e['translation']}"
-        for i, e in enumerate(result["examples"])
-    )
-    if examples_text:
-        embed.add_field(name="例文" if is_ja else "Examples", value=_truncate(examples_text), inline=False)
+    for i, sense in enumerate(senses, start=1):
+        prefix = f"【{i}】 " if multi else ""
+        translation_label = "訳" if is_ja else "Translation"
+        embed.add_field(
+            name=f"{prefix}{translation_label}",
+            value=_truncate(_format_translations(sense["translations"])),
+            inline=False,
+        )
+        embed.add_field(
+            name=f"{prefix}{'意味' if is_ja else 'Meaning'}",
+            value=_truncate(sense["meaning"]),
+            inline=False,
+        )
+        embed.add_field(
+            name=f"{prefix}{'使い方' if is_ja else 'Usage'}",
+            value=_truncate(sense["usage"]),
+            inline=False,
+        )
+        examples_text = "\n\n".join(
+            f"{j+1}. {e['source']}\n    → {e['translation']}"
+            for j, e in enumerate(sense["examples"])
+        )
+        if examples_text:
+            embed.add_field(
+                name=f"{prefix}{'例文' if is_ja else 'Examples'}",
+                value=_truncate(examples_text),
+                inline=False,
+            )
 
     label_link = "辞書で見る" if is_ja else "View in dictionary"
     embed.add_field(name="🔗", value=f"[{label_link}]({result['dictionary_url']})", inline=False)
     return embed
+
+
+def _summarize_senses(senses: list[dict]) -> str:
+    """query_log.result_summary 用: 全 sense の translations を | 区切りで連結。"""
+    return " | ".join(
+        " / ".join(t["text"] for t in sense["translations"])
+        for sense in senses
+    )
 
 
 def _build_sentence_embed(result: dict, target_lang: str, explanation_lang: str) -> discord.Embed:
@@ -153,7 +192,7 @@ async def _dispatch(user_text: str, user_id: str, user_name: str) -> discord.Emb
                 discord_user_id=user_id,
                 discord_user_name=user_name,
                 query_text=result["word"],
-                result_summary=result["translation"],
+                result_summary=_summarize_senses(result["senses"]),
                 reading=result.get("reading", ""),
             )
         except Exception as e:
