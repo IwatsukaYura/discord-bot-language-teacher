@@ -8,8 +8,6 @@ from llm import gemini_client
 
 MOCK_JA_GRAMMAR_RESPONSE = json.dumps({
     "topic": "〜てしまう",
-    "target_lang": "ja",
-    "explanation_lang": "en",
     "explanation": "The construction 〜てしまう has two main meanings: completion and regret.",
     "examples": [
         {"source": "宿題を全部やってしまった。", "translation": "I finished all the homework."},
@@ -20,8 +18,6 @@ MOCK_JA_GRAMMAR_RESPONSE = json.dumps({
 
 MOCK_EN_GRAMMAR_RESPONSE = json.dumps({
     "topic": "would have p.p.",
-    "target_lang": "en",
-    "explanation_lang": "ja",
     "explanation": "would have + 過去分詞は仮定法過去完了で、過去の事実と反対の仮定を表します。",
     "examples": [
         {"source": "I would have helped you.", "translation": "君を助けていたのに。"},
@@ -44,7 +40,9 @@ class TestHandleGrammar:
             return MOCK_JA_GRAMMAR_RESPONSE
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
-        result = await grammar_handler.handle_grammar("What does 〜てしまう mean?")
+        result = await grammar_handler.handle_grammar(
+            "What does 〜てしまう mean?", target_lang="ja", explanation_lang="en",
+        )
 
         assert result["topic"] == "〜てしまう"
         assert result["target_lang"] == "ja"
@@ -59,7 +57,9 @@ class TestHandleGrammar:
             return MOCK_EN_GRAMMAR_RESPONSE
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
-        result = await grammar_handler.handle_grammar("would have p.p.の使い方")
+        result = await grammar_handler.handle_grammar(
+            "would have p.p.の使い方", target_lang="en", explanation_lang="ja",
+        )
 
         assert result["topic"] == "would have p.p."
         assert result["target_lang"] == "en"
@@ -73,7 +73,9 @@ class TestHandleGrammar:
             return f"```json\n{MOCK_JA_GRAMMAR_RESPONSE}\n```"
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
-        result = await grammar_handler.handle_grammar("anything")
+        result = await grammar_handler.handle_grammar(
+            "anything", target_lang="ja", explanation_lang="en",
+        )
         assert result["topic"] == "〜てしまう"
 
     async def test_raises_value_error_on_invalid_json(self, monkeypatch):
@@ -82,31 +84,48 @@ class TestHandleGrammar:
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
         with pytest.raises(ValueError, match="Invalid JSON from Gemini"):
-            await grammar_handler.handle_grammar("anything")
+            await grammar_handler.handle_grammar(
+                "anything", target_lang="en", explanation_lang="ja",
+            )
 
     async def test_defaults_related_to_empty_string_when_missing(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
             return json.dumps({
                 "topic": "X",
-                "target_lang": "en",
-                "explanation_lang": "ja",
                 "explanation": "...",
                 "examples": [],
             })
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
-        result = await grammar_handler.handle_grammar("anything")
+        result = await grammar_handler.handle_grammar(
+            "anything", target_lang="en", explanation_lang="ja",
+        )
         assert result["related"] == ""
 
     async def test_defaults_examples_to_empty_list_when_missing(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
             return json.dumps({
                 "topic": "X",
-                "target_lang": "en",
-                "explanation_lang": "ja",
                 "explanation": "...",
             })
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
-        result = await grammar_handler.handle_grammar("anything")
+        result = await grammar_handler.handle_grammar(
+            "anything", target_lang="en", explanation_lang="ja",
+        )
         assert result["examples"] == []
+
+    async def test_target_and_explanation_lang_come_from_caller_not_response(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return json.dumps({
+                "topic": "X",
+                "explanation": "...",
+                "examples": [],
+            })
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        result = await grammar_handler.handle_grammar(
+            "anything", target_lang="ja", explanation_lang="en",
+        )
+        assert result["target_lang"] == "ja"
+        assert result["explanation_lang"] == "en"

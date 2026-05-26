@@ -1,4 +1,6 @@
 .env
+.env.en
+.env.ja
 data/
 __pycache__/
 *.pyc

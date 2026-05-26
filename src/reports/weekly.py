@@ -1,5 +1,4 @@
 import logging
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -72,6 +71,8 @@ def _format_word_line(item: dict) -> str:
 
 def _format_sentence_line(item: dict) -> str:
     line = f"• {item['text']}"
+    if item.get("reading"):
+        line += f"【{item['reading']}】"
     if item["summary"]:
         line += f" — {item['summary']}"
     line += _format_count_suffix(item["count"])
@@ -131,39 +132,29 @@ def build_weekly_embed(
     return embed
 
 
-def _get_learner_names() -> dict[str, str]:
-    return {
-        "en": os.getenv("EN_LEARNER_NAME", "English learner"),
-        "ja": os.getenv("JA_LEARNER_NAME", "Japanese learner"),
-    }
-
-
 async def post_weekly_reports(
     client: discord.Client,
     channel_id: int,
+    target_lang: str,
+    learner_name: str,
     now: datetime | None = None,
     db_path: Path | None = None,
-    learner_names: dict[str, str] | None = None,
 ) -> None:
     if now is None:
         now = datetime.now(JST)
     if db_path is None:
         db_path = query_log.DEFAULT_DB_PATH
-    if learner_names is None:
-        learner_names = _get_learner_names()
 
     start, end = get_current_week_range(now)
     logs = query_log.get_logs_in_range(start, end, db_path=db_path)
     summary = build_weekly_summary(logs)
 
-    if not summary:
-        logger.info("No activity this week; skipping report posting")
+    kind_summary = summary.get(target_lang)
+    if not kind_summary:
+        logger.info("No activity this week for %s; skipping report", target_lang)
         return
 
     channel = client.get_channel(channel_id) or await client.fetch_channel(channel_id)
-
-    for target_lang, kind_summary in summary.items():
-        learner_name = learner_names.get(target_lang, f"{target_lang} learner")
-        embed = build_weekly_embed(learner_name, target_lang, kind_summary, start, end)
-        await channel.send(embed=embed)
-        logger.info("Posted weekly report for %s (%s)", learner_name, target_lang)
+    embed = build_weekly_embed(learner_name, target_lang, kind_summary, start, end)
+    await channel.send(embed=embed)
+    logger.info("Posted weekly report for %s (%s)", learner_name, target_lang)

@@ -7,6 +7,7 @@ from llm import gemini_client
 
 
 MOCK_VALID_RESPONSE = json.dumps({
+    "headword": "apple",
     "translation": "リンゴ",
     "part_of_speech": "noun",
     "meaning": "A round fruit",
@@ -28,6 +29,10 @@ class TestBuildSystemPrompt:
         prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
         assert "Japanese language teacher" in prompt
         assert "English speakers" in prompt
+
+    def test_mentions_reverse_lookup_behavior(self):
+        prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
+        assert "equivalent" in prompt.lower()
 
 
 class TestStripCodeFences:
@@ -113,6 +118,7 @@ class TestHandleWord:
     async def test_url_encodes_japanese_word_for_dictionary_link(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
             return json.dumps({
+                "headword": "林檎",
                 "translation": "apple",
                 "reading": "りんご",
                 "part_of_speech": "noun",
@@ -135,6 +141,7 @@ class TestHandleWord:
     async def test_includes_reading_when_target_is_japanese(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
             return json.dumps({
+                "headword": "視察",
                 "translation": "inspection",
                 "reading": "しさつ",
                 "part_of_speech": "noun / suru-verb",
@@ -168,6 +175,54 @@ class TestHandleWord:
         )
 
         assert result["reading"] == ""
+
+    async def test_reverse_lookup_uses_headword_as_word(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return json.dumps({
+                "headword": "りんご",
+                "translation": "apple",
+                "reading": "",
+                "part_of_speech": "noun",
+                "meaning": "round red/green fruit",
+                "usage": "everyday word",
+                "examples": [],
+            })
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+
+        result = await word_handler.handle_word(
+            word="apple",
+            target_lang="ja",
+            explanation_lang="en",
+            dictionary_url_template="https://jisho.org/search/{word}",
+        )
+
+        assert result["word"] == "りんご"
+        assert "%E3%82%8A%E3%82%93%E3%81%94" in result["dictionary_url"]
+
+    async def test_reverse_lookup_includes_reading_for_kanji_headword(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return json.dumps({
+                "headword": "机",
+                "translation": "desk",
+                "reading": "つくえ",
+                "part_of_speech": "noun",
+                "meaning": "furniture you sit at",
+                "usage": "everyday word",
+                "examples": [],
+            })
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+
+        result = await word_handler.handle_word(
+            word="desk",
+            target_lang="ja",
+            explanation_lang="en",
+            dictionary_url_template="https://jisho.org/search/{word}",
+        )
+
+        assert result["word"] == "机"
+        assert result["reading"] == "つくえ"
 
 
 class TestBuildSystemPromptReading:

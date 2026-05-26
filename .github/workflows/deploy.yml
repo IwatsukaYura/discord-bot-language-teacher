@@ -2,8 +2,16 @@ name: Deploy to EC2
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      env:
+        description: 'Deploy environment'
+        required: true
+        type: choice
+        options:
+          - prod
+          - dev
 
 permissions:
   id-token: write
@@ -17,6 +25,22 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve target environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENV="${{ github.event.inputs.env }}"
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            ENV="prod"
+          elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+            ENV="dev"
+          else
+            echo "::error::Unsupported ref: ${{ github.ref }}"
+            exit 1
+          fi
+          echo "env=$ENV" >> "$GITHUB_OUTPUT"
+          echo "Resolved environment: $ENV"
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -25,16 +49,18 @@ jobs:
 
       - name: Trigger deploy on EC2 via SSM Send-Command
         id: ssm
+        env:
+          TARGET_ENV: ${{ steps.env.outputs.env }}
         run: |
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "Deploy commit ${{ github.sha }}" \
-            --parameters 'commands=["bash /opt/language-teacher/scripts/deploy.sh"]' \
+            --comment "Deploy $TARGET_ENV commit ${{ github.sha }}" \
+            --parameters "commands=[\"bash /opt/language-teacher/$TARGET_ENV/scripts/deploy.sh $TARGET_ENV\"]" \
             --query "Command.CommandId" \
             --output text)
           echo "Command ID: $COMMAND_ID"
-          echo "command_id=$COMMAND_ID" >> $GITHUB_OUTPUT
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
 
       - name: Poll for completion and show output
         run: |

@@ -10,6 +10,7 @@ import os
 import discord
 from dotenv import load_dotenv
 
+from config import load_bot_config
 from reports import weekly
 
 load_dotenv()
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 async def main():
     token = os.getenv("DISCORD_BOT_TOKEN")
     channel_id_str = os.getenv("REPORT_CHANNEL_ID")
+    bot_config = load_bot_config()
 
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN is not set in .env")
@@ -32,9 +34,14 @@ async def main():
 
     @client.event
     async def on_ready():
-        logger.info(f"Logged in as {client.user}")
+        logger.info(f"Logged in as {client.user} (role={bot_config.role})")
         try:
-            await weekly.post_weekly_reports(client, channel_id)
+            await weekly.post_weekly_reports(
+                client,
+                channel_id,
+                bot_config.target_lang,
+                bot_config.learner_name,
+            )
             logger.info("Weekly report posted")
         except Exception:
             logger.exception("Failed to post weekly report")

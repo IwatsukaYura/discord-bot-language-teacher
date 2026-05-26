@@ -7,13 +7,18 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
-from db import query_log
+from config import BotConfig, load_bot_config
+from db import query_log, quiz_log
 from handlers import grammar_handler, router, sentence_handler, word_handler
+from quiz import daily as quiz_daily
+from quiz import poster as quiz_poster
 from reports import weekly
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+_bot_config: BotConfig = load_bot_config()
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -21,16 +26,9 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 _scheduler = AsyncIOScheduler(timezone="Asia/Tokyo")
 
-_JAPANESE_PATTERN = re.compile(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]")
 _MENTION_PATTERN = re.compile(r"<@!?\d+>")
-_CAMBRIDGE_URL = "https://dictionary.cambridge.org/dictionary/english/{word}"
-_JISHO_URL = "https://jisho.org/search/{word}"
 _EMBED_FIELD_MAX = 1024
 _EMBED_TITLE_MAX = 200
-
-
-def _contains_japanese(text: str) -> bool:
-    return bool(_JAPANESE_PATTERN.search(text))
 
 
 def _extract_user_text(content: str) -> str:
@@ -71,8 +69,13 @@ def _build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> 
 
 
 def _build_sentence_embed(result: dict, target_lang: str, explanation_lang: str) -> discord.Embed:
+    source_reading = result.get("source_reading", "")
+    reading_part = f"\n【{source_reading}】" if source_reading else ""
     title = f"📝 {_truncate(result['source_text'], _EMBED_TITLE_MAX)}"
     embed = discord.Embed(title=title, color=_color_for(target_lang))
+
+    if reading_part:
+        embed.description = reading_part.strip()
 
     is_ja = explanation_lang == "ja"
     embed.add_field(name="訳" if is_ja else "Translation", value=_truncate(result["translation"]), inline=False)
@@ -133,16 +136,15 @@ async def _dispatch(user_text: str, user_id: str, user_name: str) -> discord.Emb
     input_type = await router.classify_input(user_text)
     logger.info("Classified %r as %s", user_text, input_type)
 
+    target_lang = _bot_config.target_lang
+    explanation_lang = _bot_config.explanation_lang
+
     if input_type == "word":
-        is_japanese = _contains_japanese(user_text)
-        target_lang = "ja" if is_japanese else "en"
-        explanation_lang = "en" if is_japanese else "ja"
-        url_template = _JISHO_URL if is_japanese else _CAMBRIDGE_URL
         result = await word_handler.handle_word(
             word=user_text,
             target_lang=target_lang,
             explanation_lang=explanation_lang,
-            dictionary_url_template=url_template,
+            dictionary_url_template=_bot_config.dictionary_url_template,
         )
         try:
             query_log.insert_query_log(
@@ -150,7 +152,7 @@ async def _dispatch(user_text: str, user_id: str, user_name: str) -> discord.Emb
                 target_lang=target_lang,
                 discord_user_id=user_id,
                 discord_user_name=user_name,
-                query_text=user_text,
+                query_text=result["word"],
                 result_summary=result["translation"],
                 reading=result.get("reading", ""),
             )
@@ -159,9 +161,6 @@ async def _dispatch(user_text: str, user_id: str, user_name: str) -> discord.Emb
         return _build_word_embed(result, target_lang, explanation_lang)
 
     if input_type == "sentence":
-        is_japanese = _contains_japanese(user_text)
-        target_lang = "ja" if is_japanese else "en"
-        explanation_lang = "en" if is_japanese else "ja"
         result = await sentence_handler.handle_sentence(
             text=user_text,
             target_lang=target_lang,
@@ -173,18 +172,23 @@ async def _dispatch(user_text: str, user_id: str, user_name: str) -> discord.Emb
                 target_lang=target_lang,
                 discord_user_id=user_id,
                 discord_user_name=user_name,
-                query_text=user_text,
+                query_text=result["source_text"],
                 result_summary=result["translation"],
+                reading=result.get("source_reading", ""),
             )
         except Exception as e:
             logger.warning("Failed to log sentence query: %s", e)
         return _build_sentence_embed(result, target_lang, explanation_lang)
 
-    result = await grammar_handler.handle_grammar(user_text)
+    result = await grammar_handler.handle_grammar(
+        user_text,
+        target_lang=target_lang,
+        explanation_lang=explanation_lang,
+    )
     try:
         query_log.insert_query_log(
             kind="grammar",
-            target_lang=result["target_lang"],
+            target_lang=target_lang,
             discord_user_id=user_id,
             discord_user_name=user_name,
             query_text=user_text,
@@ -197,8 +201,12 @@ async def _dispatch(user_text: str, user_id: str, user_name: str) -> discord.Emb
 
 @client.event
 async def on_ready():
-    logger.info(f"Logged in as {client.user} (id={client.user.id})")
+    logger.info(
+        "Logged in as %s (id=%d, role=%s)",
+        client.user, client.user.id, _bot_config.role,
+    )
     _setup_weekly_scheduler()
+    _setup_quiz_scheduler()
 
 
 def _setup_weekly_scheduler() -> None:
@@ -212,12 +220,72 @@ def _setup_weekly_scheduler() -> None:
     _scheduler.add_job(
         weekly.post_weekly_reports,
         CronTrigger(day_of_week="sun", hour=21, minute=0, timezone="Asia/Tokyo"),
-        args=[client, channel_id],
+        args=[client, channel_id, _bot_config.target_lang, _bot_config.learner_name],
         id="weekly_report",
         replace_existing=True,
     )
     _scheduler.start()
-    logger.info("Weekly report scheduler started (Sunday 21:00 JST)")
+    logger.info(
+        "Weekly report scheduler started (Sunday 21:00 JST) for %s",
+        _bot_config.learner_name,
+    )
+
+
+def _get_quiz_learner() -> dict | None:
+    if not _bot_config.learner_discord_id:
+        return None
+    return {
+        "discord_user_id": _bot_config.learner_discord_id,
+        "name": _bot_config.learner_name,
+        "target_lang": _bot_config.target_lang,
+    }
+
+
+def _setup_quiz_scheduler() -> None:
+    channel_id_str = os.getenv("QUIZ_CHANNEL_ID")
+    if not channel_id_str:
+        logger.warning("QUIZ_CHANNEL_ID not set; daily quiz disabled")
+        return
+    learner = _get_quiz_learner()
+    if learner is None:
+        logger.warning(
+            "Learner Discord ID for BOT_ROLE=%s is not set; daily quiz disabled",
+            _bot_config.role,
+        )
+        return
+    channel_id = int(channel_id_str)
+    _scheduler.add_job(
+        quiz_daily.post_daily_quizzes_for_learner,
+        CronTrigger(hour=8, minute=0, timezone="Asia/Tokyo"),
+        args=[client, channel_id, learner],
+        id="daily_quiz",
+        replace_existing=True,
+    )
+    if not _scheduler.running:
+        _scheduler.start()
+    logger.info("Daily quiz scheduler set (8:00 JST) for %s", learner["name"])
+
+
+@client.event
+async def on_interaction(interaction: discord.Interaction):
+    if interaction.type != discord.InteractionType.component:
+        return
+    if not interaction.data:
+        return
+    custom_id = interaction.data.get("custom_id", "")
+    parsed = quiz_poster.parse_custom_id(custom_id)
+    if parsed is None:
+        return
+    quiz_id, choice_index = parsed
+    try:
+        await quiz_daily.handle_quiz_answer(interaction, quiz_id, choice_index)
+    except Exception:
+        logger.exception("Failed to handle quiz answer (quiz_id=%d)", quiz_id)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "エラーが出たみたい。少し後でもう一度ボタンを押してみて。",
+                ephemeral=True,
+            )
 
 
 @client.event
@@ -250,6 +318,7 @@ def main():
     if not token:
         raise RuntimeError("DISCORD_BOT_TOKEN is not set in .env")
     query_log.init_db()
+    quiz_log.init_db()
     client.run(token)
 
 

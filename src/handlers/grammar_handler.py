@@ -7,28 +7,23 @@ from llm import gemini_client
 logger = logging.getLogger(__name__)
 
 
-_SYSTEM_PROMPT = """You are a grammar teacher for learners of English and Japanese.
-The user is asking a question about a grammar pattern. Your job:
-
-1. Identify the grammar pattern they're asking about.
-2. Determine the language of that pattern (English or Japanese) → target_lang.
-3. Determine the language to explain it in (explanation_lang). Rule:
-   - If the question text (outside the grammar pattern itself) is mostly in one language,
-     use that language for the explanation.
-   - Otherwise, default to the language opposite to target_lang.
+def _build_system_prompt(target_lang: str, explanation_lang: str) -> str:
+    target_name = "English" if target_lang == "en" else "Japanese"
+    explanation_name = "Japanese" if explanation_lang == "ja" else "English"
+    return f"""You are a {target_name} grammar teacher for {explanation_name} speakers.
+The user is asking a question about a {target_name} grammar pattern. Your job is
+to identify the pattern and explain it in {explanation_name}.
 
 Return a JSON object with this exact structure:
 
-{
+{{
   "topic": "the grammar pattern, e.g. '〜てしまう' or 'would have p.p.'",
-  "target_lang": "en" or "ja",
-  "explanation_lang": "en" or "ja",
-  "explanation": "clear explanation in explanation_lang (keep under ~600 characters)",
+  "explanation": "clear explanation in {explanation_name} (keep under ~600 characters). Assume an early-stage learner; keep the wording simple and avoid jargon.",
   "examples": [
-    {"source": "an example using the pattern", "translation": "translation in explanation_lang"}
+    {{"source": "a {target_name} example using the pattern", "translation": "translation in {explanation_name}"}}
   ],
-  "related": "related grammar notes in explanation_lang (under ~200 chars, or empty string)"
-}
+  "related": "related grammar notes in {explanation_name} (under ~200 chars, or empty string)"
+}}
 
 Provide 2-3 examples. Respond ONLY with the JSON object, no markdown fences, no extra text."""
 
@@ -39,8 +34,9 @@ def _strip_code_fences(text: str) -> str:
     return match.group(1).strip() if match else text
 
 
-async def handle_grammar(text: str) -> dict:
-    raw_response = await gemini_client.generate(_SYSTEM_PROMPT, text)
+async def handle_grammar(text: str, target_lang: str, explanation_lang: str) -> dict:
+    system_prompt = _build_system_prompt(target_lang, explanation_lang)
+    raw_response = await gemini_client.generate(system_prompt, text)
     cleaned = _strip_code_fences(raw_response)
 
     try:
@@ -51,8 +47,8 @@ async def handle_grammar(text: str) -> dict:
 
     return {
         "topic": parsed["topic"],
-        "target_lang": parsed["target_lang"],
-        "explanation_lang": parsed["explanation_lang"],
+        "target_lang": target_lang,
+        "explanation_lang": explanation_lang,
         "explanation": parsed["explanation"],
         "examples": parsed.get("examples", []),
         "related": parsed.get("related", ""),
