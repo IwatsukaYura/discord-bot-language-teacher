@@ -6,17 +6,15 @@ from handlers import word_handler
 from llm import gemini_client
 
 
-MOCK_SINGLE_SENSE_RESPONSE = json.dumps({
-    "headword": "apple",
-    "reading": "",
-    "part_of_speech": "noun",
+MOCK_SINGLE_SENSE_EN_TARGET = json.dumps({
+    "input": "apple",
     "senses": [
         {
-            "translations": [
-                {"text": "リンゴ", "reading": ""},
-            ],
-            "meaning": "A round red or green fruit.",
-            "usage": "Everyday word.",
+            "headword": "apple",
+            "headword_reading": "",
+            "part_of_speech": "noun",
+            "meaning": "赤や緑の皮を持つ果物",
+            "usage": "日常語",
             "examples": [
                 {"source": "I ate an apple.", "translation": "りんごを食べた。"},
                 {"source": "She likes apples.", "translation": "彼女はりんごが好きです。"},
@@ -26,53 +24,47 @@ MOCK_SINGLE_SENSE_RESPONSE = json.dumps({
 })
 
 
-MOCK_MULTI_SENSE_RESPONSE = json.dumps({
-    "headword": "retrieval",
-    "reading": "",
-    "part_of_speech": "noun",
+MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP = json.dumps({
+    "input": "retrieval",
     "senses": [
         {
-            "translations": [
-                {"text": "検索", "reading": ""},
-                {"text": "取り出し", "reading": ""},
-            ],
-            "meaning": "情報を取り出すこと",
-            "usage": "技術文脈で頻出",
+            "headword": "検索",
+            "headword_reading": "けんさく",
+            "part_of_speech": "noun / suru-verb",
+            "meaning": "Retrieving information from a database or server.",
+            "usage": "Common in technical contexts.",
             "examples": [
-                {"source": "I retrieve records from the DB.", "translation": "DBからレコードを取り出す。"},
-                {"source": "Data retrieval is fast here.", "translation": "ここはデータの取り出しが速い。"},
+                {"source": "データベースからレコードを検索する。", "translation": "I retrieve records from the database."},
+                {"source": "素早く情報を検索する。", "translation": "Search information quickly with retrieval."},
             ],
         },
         {
-            "translations": [
-                {"text": "回収", "reading": ""},
-            ],
-            "meaning": "失った物を取り戻すこと",
-            "usage": "物理的なものに使う",
+            "headword": "回収",
+            "headword_reading": "かいしゅう",
+            "part_of_speech": "noun / suru-verb",
+            "meaning": "Bringing back a lost item.",
+            "usage": "Used for physical objects.",
             "examples": [
-                {"source": "The dog retrieves the ball.", "translation": "犬がボールを回収する。"},
-                {"source": "He retrieved his lost wallet.", "translation": "彼は失くした財布を回収した。"},
+                {"source": "犬がボールを回収する。", "translation": "The dog retrieves the ball."},
+                {"source": "失くした財布を回収した。", "translation": "I retrieved the lost wallet."},
             ],
         },
     ],
 })
 
 
-MOCK_JA_TARGET_RESPONSE = json.dumps({
-    "headword": "検索",
-    "reading": "けんさく",
-    "part_of_speech": "noun / suru-verb",
+MOCK_JA_DIRECT_LOOKUP = json.dumps({
+    "input": "視察",
     "senses": [
         {
-            "translations": [
-                {"text": "検索", "reading": "けんさく"},
-                {"text": "取り出し", "reading": "とりだし"},
-            ],
-            "meaning": "Retrieving information from a database or server.",
-            "usage": "Common in technical contexts.",
+            "headword": "視察",
+            "headword_reading": "しさつ",
+            "part_of_speech": "noun / suru-verb",
+            "meaning": "Visiting a location to observe and inspect.",
+            "usage": "Used in official or formal contexts.",
             "examples": [
-                {"source": "データベースからレコードを取り出す。", "translation": "I retrieve records from the database."},
-                {"source": "サーバーからログを取り出した。", "translation": "I retrieved logs from the server."},
+                {"source": "現場を視察する。", "translation": "I inspect (視察) the site."},
+                {"source": "工場を視察した。", "translation": "I visited (視察) the factory."},
             ],
         }
     ],
@@ -94,23 +86,21 @@ class TestBuildSystemPrompt:
         prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
         assert "equivalent" in prompt.lower()
 
-    def test_mentions_senses_split_rule(self):
-        prompt = word_handler._build_system_prompt(target_lang="en", explanation_lang="ja")
-        assert "senses" in prompt.lower()
-        assert "distinct meaning" in prompt.lower()
-
-    def test_mentions_translation_must_contain_user_input(self):
-        prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
-        # 例文 translation に user 入力(またはその活用形)を含めることを必須とする指示が存在
-        assert "inflection" in prompt.lower()
-
-    def test_japanese_target_requires_reading_for_kanji_in_translations(self):
+    def test_japanese_target_requires_reading_for_kanji(self):
         prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
         assert "hiragana" in prompt.lower()
 
-    def test_english_target_forces_empty_translation_readings(self):
+    def test_english_target_forces_empty_readings(self):
         prompt = word_handler._build_system_prompt(target_lang="en", explanation_lang="ja")
-        assert "empty strings" in prompt.lower() or "MUST be empty" in prompt
+        assert "MUST be empty strings" in prompt
+
+    def test_mentions_per_sense_headword_in_examples(self):
+        prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
+        assert "sense's headword" in prompt
+
+    def test_mentions_user_input_in_example_translation(self):
+        prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
+        assert "inflection" in prompt.lower()
 
 
 class TestStripCodeFences:
@@ -144,7 +134,7 @@ class TestBuildDictionaryUrl:
 class TestHandleWord:
     async def test_returns_structured_dict_for_single_sense(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
-            return MOCK_SINGLE_SENSE_RESPONSE
+            return MOCK_SINGLE_SENSE_EN_TARGET
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
 
@@ -155,37 +145,18 @@ class TestHandleWord:
             dictionary_url_template="https://example.com/{word}",
         )
 
-        assert result["word"] == "apple"
-        assert result["reading"] == ""
-        assert result["part_of_speech"] == "noun"
+        assert result["input"] == "apple"
         assert len(result["senses"]) == 1
         sense = result["senses"][0]
-        assert sense["translations"] == [{"text": "リンゴ", "reading": ""}]
-        assert sense["meaning"] == "A round red or green fruit."
+        assert sense["headword"] == "apple"
+        assert sense["headword_reading"] == ""
+        assert sense["part_of_speech"] == "noun"
         assert len(sense["examples"]) == 2
         assert result["dictionary_url"] == "https://example.com/apple"
 
-    async def test_returns_multiple_senses_for_polysemous_word(self, monkeypatch):
+    async def test_reverse_lookup_returns_multiple_senses_with_target_lang_headwords(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
-            return MOCK_MULTI_SENSE_RESPONSE
-
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
-
-        result = await word_handler.handle_word(
-            word="retrieval",
-            target_lang="en",
-            explanation_lang="ja",
-            dictionary_url_template="https://example.com/{word}",
-        )
-
-        assert result["word"] == "retrieval"
-        assert len(result["senses"]) == 2
-        assert [t["text"] for t in result["senses"][0]["translations"]] == ["検索", "取り出し"]
-        assert [t["text"] for t in result["senses"][1]["translations"]] == ["回収"]
-
-    async def test_reverse_lookup_uses_headword_as_word_with_reading(self, monkeypatch):
-        async def fake_generate(system_prompt, user_prompt):
-            return MOCK_JA_TARGET_RESPONSE
+            return MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
 
@@ -196,16 +167,51 @@ class TestHandleWord:
             dictionary_url_template="https://jisho.org/search/{word}",
         )
 
-        assert result["word"] == "検索"
-        assert result["reading"] == "けんさく"
-        # 各 translation エントリに reading が付いていること
-        translations = result["senses"][0]["translations"]
-        assert {"text": "検索", "reading": "けんさく"} in translations
-        assert {"text": "取り出し", "reading": "とりだし"} in translations
+        assert result["input"] == "retrieval"
+        assert len(result["senses"]) == 2
+
+        sense_1, sense_2 = result["senses"]
+        assert sense_1["headword"] == "検索"
+        assert sense_1["headword_reading"] == "けんさく"
+        assert sense_2["headword"] == "回収"
+        assert sense_2["headword_reading"] == "かいしゅう"
+
+    async def test_direct_lookup_japanese_word_keeps_input_and_headword_same(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return MOCK_JA_DIRECT_LOOKUP
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+
+        result = await word_handler.handle_word(
+            word="視察",
+            target_lang="ja",
+            explanation_lang="en",
+            dictionary_url_template="https://jisho.org/search/{word}",
+        )
+
+        assert result["input"] == "視察"
+        assert result["senses"][0]["headword"] == "視察"
+        assert result["senses"][0]["headword_reading"] == "しさつ"
+
+    async def test_dictionary_url_uses_user_input(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+
+        result = await word_handler.handle_word(
+            word="retrieval",
+            target_lang="ja",
+            explanation_lang="en",
+            dictionary_url_template="https://jisho.org/search/{word}",
+        )
+
+        # 主見出しではなくユーザー入力(retrieval)が URL に入る
+        assert result["dictionary_url"] == "https://jisho.org/search/retrieval"
 
     async def test_handles_response_wrapped_in_code_fences(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
-            return f"```json\n{MOCK_SINGLE_SENSE_RESPONSE}\n```"
+            return f"```json\n{MOCK_SINGLE_SENSE_EN_TARGET}\n```"
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
 
@@ -216,7 +222,7 @@ class TestHandleWord:
             dictionary_url_template="https://example.com/{word}",
         )
 
-        assert result["senses"][0]["translations"][0]["text"] == "リンゴ"
+        assert result["senses"][0]["headword"] == "apple"
 
     async def test_raises_value_error_on_invalid_json(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
@@ -232,13 +238,13 @@ class TestHandleWord:
                 dictionary_url_template="https://example.com/{word}",
             )
 
-    async def test_reading_defaults_to_empty_when_missing(self, monkeypatch):
+    async def test_falls_back_to_user_word_when_input_missing(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
             return json.dumps({
-                "headword": "apple",
-                "part_of_speech": "noun",
                 "senses": [{
-                    "translations": [{"text": "リンゴ", "reading": ""}],
+                    "headword": "apple",
+                    "headword_reading": "",
+                    "part_of_speech": "noun",
                     "meaning": "...",
                     "usage": "...",
                     "examples": [],
@@ -254,20 +260,4 @@ class TestHandleWord:
             dictionary_url_template="https://example.com/{word}",
         )
 
-        assert result["reading"] == ""
-
-    async def test_url_encodes_japanese_headword(self, monkeypatch):
-        async def fake_generate(system_prompt, user_prompt):
-            return MOCK_JA_TARGET_RESPONSE
-
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
-
-        result = await word_handler.handle_word(
-            word="retrieval",
-            target_lang="ja",
-            explanation_lang="en",
-            dictionary_url_template="https://jisho.org/search/{word}",
-        )
-
-        # "検索" の URL エンコード
-        assert "%E6%A4%9C%E7%B4%A2" in result["dictionary_url"]
+        assert result["input"] == "apple"

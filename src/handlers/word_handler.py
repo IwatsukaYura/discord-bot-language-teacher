@@ -13,21 +13,19 @@ def _build_system_prompt(target_lang: str, explanation_lang: str) -> str:
     explanation_name = "Japanese" if explanation_lang == "ja" else "English"
     is_ja_target = target_lang == "ja"
 
-    word_reading_field = (
-        '\n  "reading": "hiragana reading of the headword if it contains kanji; empty string otherwise",'
-        if is_ja_target
-        else '\n  "reading": "",'
-    )
-
     if is_ja_target:
-        translation_reading_rule = (
-            "- For each translation entry, set `reading` to the hiragana reading of `text` when `text` contains kanji. "
-            "If `text` has no kanji (already hiragana / katakana / non-Japanese), set `reading` to an empty string."
+        headword_reading_field = (
+            '\n      "headword_reading": "hiragana reading of the headword if it contains kanji; empty string otherwise",'
+        )
+        headword_reading_rule = (
+            "- Each sense's `headword_reading` is the hiragana reading of `headword` when `headword` contains kanji. "
+            "Empty string when there is no kanji (already hiragana / katakana / non-Japanese)."
         )
     else:
-        translation_reading_rule = (
-            "- All translation `reading` fields MUST be empty strings "
-            "(the learner is a Japanese native speaker who does not need furigana)."
+        headword_reading_field = '\n      "headword_reading": "",'
+        headword_reading_rule = (
+            "- All `headword_reading` fields MUST be empty strings "
+            "(the learner is a Japanese native speaker and does not need furigana)."
         )
 
     return f"""You are a {target_name} dictionary teacher for {explanation_name} speakers.
@@ -36,39 +34,39 @@ The user submits a single word or short phrase. It may be either:
   (a) in {target_name} — the language they are studying, or
   (b) in {explanation_name} — their native language, asking for the {target_name} equivalent.
 
-If (a), use the submitted word as the headword.
-If (b), pick the single most natural {target_name} equivalent and use THAT as the headword.
+Identify the distinct major senses of the user's input as expressed in {target_name}.
+EACH SENSE GETS ITS OWN {target_name} HEADWORD and its own examples.
 
-If the word has SEVERAL distinct meanings that a learner would meaningfully benefit from knowing,
-split them into 2-3 separate sense entries. If it has only one main meaning, return ONE sense.
-Do NOT pad with niche or rare meanings just to fill the array.
+For example, if the user submits "retrieval" (English) and the bot teaches Japanese,
+plausible senses are: 検索 (looking up info), 取り出し (extracting), 回収 (recovering a lost item),
+回復 (restoring). Pick 1-3 of the most useful for the learner.
+
+If the word has only ONE main meaning, return ONE sense. Do NOT pad with niche meanings.
 
 Return a JSON object with this exact structure:
 
 {{
-  "headword": "the {target_name} word/phrase that serves as the main entry (always in {target_name})",{word_reading_field}
-  "part_of_speech": "noun / verb / adjective / etc.",
+  "input": "the exact word/phrase the user submitted (echo back verbatim)",
   "senses": [
     {{
-      "translations": [
-        {{"text": "one {explanation_name} translation word/phrase", "reading": ""}}
-      ],
+      "headword": "the {target_name} headword for this sense (always in {target_name})",{headword_reading_field}
+      "part_of_speech": "noun / verb / adjective / etc.",
       "meaning": "brief meaning in {explanation_name}, written for an early-stage learner (simple wording, no jargon)",
       "usage": "1-2 short notes about usage or collocations in {explanation_name}",
       "examples": [
-        {{"source": "natural example sentence in {target_name}", "translation": "translation in {explanation_name}"}}
+        {{"source": "natural {target_name} sentence containing the sense's headword", "translation": "translation in {explanation_name} containing the user's submitted word (or its inflection)"}}
       ]
     }}
   ]
 }}
 
 Rules:
-- Provide exactly 2 example sentences per sense.
-- Every example's `translation` field MUST contain the user's submitted form OR its inflection / part-of-speech variant. For example, if the user submitted "retrieval", every example translation must contain one of: retrieval, retrieve, retrieved, retrieves, retrieving. Do NOT substitute with a synonym like "search" or "look up" in place of the user's word.
-- Each `translations[].text` is a SINGLE word or short phrase. Do not pack multiple alternatives into one string (e.g. "search / retrieval"); list them as separate entries in the `translations` array.
-- Provide 1-3 translation entries per sense, ordered by typicality.
-{translation_reading_rule}
-- `meaning` and `usage` are written in {explanation_name}.
+- Provide exactly 2 examples per sense.
+- Each example's `source` MUST contain the SAME sense's headword (or its inflection / part-of-speech variant).
+- Each example's `translation` MUST contain the user's submitted form OR its inflection / part-of-speech variant. For example, if the user submitted "retrieval", every example translation must contain one of: retrieval, retrieve, retrieved, retrieves, retrieving.
+- The two examples in a sense should use the SAME sense's headword consistently (do not switch headwords mid-sense).
+{headword_reading_rule}
+- `meaning` and `usage` are in {explanation_name}.
 
 Respond ONLY with the JSON object, no extra text, no markdown fences."""
 
@@ -99,11 +97,9 @@ async def handle_word(
         logger.error("Failed to parse Gemini response as JSON: %r", cleaned)
         raise ValueError(f"Invalid JSON from Gemini: {e}") from e
 
-    headword = parsed["headword"]
+    user_input = parsed.get("input", word)
     return {
-        "word": headword,
-        "reading": parsed.get("reading", ""),
-        "part_of_speech": parsed["part_of_speech"],
+        "input": user_input,
         "senses": parsed["senses"],
-        "dictionary_url": _build_dictionary_url(headword, dictionary_url_template),
+        "dictionary_url": _build_dictionary_url(user_input, dictionary_url_template),
     }

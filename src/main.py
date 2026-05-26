@@ -45,20 +45,34 @@ def _color_for(target_lang: str) -> discord.Color:
     return discord.Color.blue() if target_lang == "en" else discord.Color.red()
 
 
-def _format_translation_entry(entry: dict) -> str:
-    text = entry["text"]
-    reading = entry.get("reading", "")
-    return f"{text}【{reading}】" if reading else text
+def _format_sense_heading(sense: dict, index: int, multi: bool) -> str:
+    headword = sense["headword"]
+    reading = sense.get("headword_reading", "")
+    pos = sense.get("part_of_speech", "")
+    reading_part = f"【{reading}】" if reading else ""
+    pos_part = f" ({pos})" if pos else ""
+    prefix = f"【{index}】 " if multi else ""
+    return f"{prefix}{headword}{reading_part}{pos_part}"
 
 
-def _format_translations(translations: list[dict]) -> str:
-    return " / ".join(_format_translation_entry(t) for t in translations)
+def _format_sense_body(sense: dict, is_ja: bool) -> str:
+    meaning_label = "意味" if is_ja else "Meaning"
+    usage_label = "使い方" if is_ja else "Usage"
+    lines = [
+        f"**{meaning_label}**: {sense['meaning']}",
+        f"**{usage_label}**: {sense['usage']}",
+    ]
+    examples = sense.get("examples", [])
+    if examples:
+        lines.append("")
+        for j, e in enumerate(examples, start=1):
+            lines.append(f"{j}. {e['source']}")
+            lines.append(f"    → {e['translation']}")
+    return "\n".join(lines)
 
 
 def _build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> discord.Embed:
-    reading = result.get("reading", "")
-    reading_part = f"【{reading}】" if reading else ""
-    title = f"📘 {result['word']}{reading_part} ({result['part_of_speech']})"
+    title = f"📘 {result['input']}"
     embed = discord.Embed(title=_truncate(title, _EMBED_TITLE_MAX), color=_color_for(target_lang))
 
     is_ja = explanation_lang == "ja"
@@ -66,45 +80,20 @@ def _build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> 
     multi = len(senses) > 1
 
     for i, sense in enumerate(senses, start=1):
-        prefix = f"【{i}】 " if multi else ""
-        translation_label = "訳" if is_ja else "Translation"
         embed.add_field(
-            name=f"{prefix}{translation_label}",
-            value=_truncate(_format_translations(sense["translations"])),
+            name=_truncate(_format_sense_heading(sense, i, multi), _EMBED_TITLE_MAX),
+            value=_truncate(_format_sense_body(sense, is_ja)),
             inline=False,
         )
-        embed.add_field(
-            name=f"{prefix}{'意味' if is_ja else 'Meaning'}",
-            value=_truncate(sense["meaning"]),
-            inline=False,
-        )
-        embed.add_field(
-            name=f"{prefix}{'使い方' if is_ja else 'Usage'}",
-            value=_truncate(sense["usage"]),
-            inline=False,
-        )
-        examples_text = "\n\n".join(
-            f"{j+1}. {e['source']}\n    → {e['translation']}"
-            for j, e in enumerate(sense["examples"])
-        )
-        if examples_text:
-            embed.add_field(
-                name=f"{prefix}{'例文' if is_ja else 'Examples'}",
-                value=_truncate(examples_text),
-                inline=False,
-            )
 
     label_link = "辞書で見る" if is_ja else "View in dictionary"
     embed.add_field(name="🔗", value=f"[{label_link}]({result['dictionary_url']})", inline=False)
     return embed
 
 
-def _summarize_senses(senses: list[dict]) -> str:
-    """query_log.result_summary 用: 全 sense の translations を | 区切りで連結。"""
-    return " | ".join(
-        " / ".join(t["text"] for t in sense["translations"])
-        for sense in senses
-    )
+def _summarize_headwords(senses: list[dict]) -> str:
+    """query_log.result_summary 用: 全 sense の headword を ' / ' 区切りで連結。"""
+    return " / ".join(sense["headword"] for sense in senses)
 
 
 def _build_sentence_embed(result: dict, target_lang: str, explanation_lang: str) -> discord.Embed:
@@ -191,9 +180,9 @@ async def _dispatch(user_text: str, user_id: str, user_name: str) -> discord.Emb
                 target_lang=target_lang,
                 discord_user_id=user_id,
                 discord_user_name=user_name,
-                query_text=result["word"],
-                result_summary=_summarize_senses(result["senses"]),
-                reading=result.get("reading", ""),
+                query_text=result["input"],
+                result_summary=_summarize_headwords(result["senses"]),
+                reading="",
             )
         except Exception as e:
             logger.warning("Failed to log word query: %s", e)
