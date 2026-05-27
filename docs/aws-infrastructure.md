@@ -265,7 +265,7 @@ flowchart TB
 
 AWS API からは確認できなかった事項:
 
-- **EC2 の初期セットアップ手順**(Docker のインストール、`/opt/language-teacher` の clone 元、git remote 設定など):userData 空、手動構築のためログが残っていない。Phase 8 の dev/prod 並存化(`/opt/language-teacher/{prod,dev}/`)は手動で実施したが、再構築できる手順は [docs/dev-environment-setup.md](./dev-environment-setup.md) に集約済み。
+- **EC2 の初期セットアップ手順**(Docker のインストール、`/opt/language-teacher` の clone 元、git remote 設定など):userData 空、手動構築のためログが残っていない。Phase 8 の dev/prod 並存化(`/opt/language-teacher/{prod,dev}/`)も手動で実施した。
 - **EC2 上の Docker / docker-compose のバージョン**:SSM Session で接続しないと不明。
 - **EBS スナップショットが手動で取られている可能性**:未確認(おそらく未設定)。
 - **CloudWatch Alarm の有無**:未確認(おそらく未設定)。

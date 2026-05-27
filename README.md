@@ -114,10 +114,7 @@ The bots run on a single EC2 instance with **prod** and **dev** side-by-side:
 
 `scripts/deploy.sh` takes a single argument (`prod` or `dev`), pulls the matching branch, fetches secrets from the matching SSM prefix, writes `.env.en` / `.env.ja`, and runs `docker compose up -d --build` under the matching project name.
 
-See:
-- [docs/aws-infrastructure.md](docs/aws-infrastructure.md) — system diagram and design decisions
-- [docs/dev-environment-setup.md](docs/dev-environment-setup.md) — one-time setup for the dev environment
-- [docs/ssm-parameter-migration.md](docs/ssm-parameter-migration.md) — SSM parameter layout and migration steps
+See [docs/aws-infrastructure.md](docs/aws-infrastructure.md) for the system diagram and design decisions.
 
 ## Weekly Report (per bot, per environment)
 

@@ -602,7 +602,7 @@ Examples:
 - 同一 EC2(`i-08d32da47bbc237aa`)上に `/opt/language-teacher/{prod,dev}` を並存させ、Compose project name(`lt-prod` / `lt-dev`)と SSM プレフィックス(`/language-teacher/{prod,dev}/*`)で隔離。
 - `main` push → prod / `develop` push → dev に GitHub Actions が振り分けてデプロイ。
 - dev は専用 Discord サーバー + 別 Bot 2 個を使用し、本番ユーザーから完全隔離。
-- 設計判断とシステム構成は `docs/aws-infrastructure.md` に、初期セットアップは `docs/dev-environment-setup.md` に、SSM 移行手順は `docs/ssm-parameter-migration.md` に分離して記録。
+- 設計判断とシステム構成は `docs/aws-infrastructure.md` に記録。
 
 **完了条件:** `develop` ブランチへの push で dev 環境のみが更新され、本番には影響しないこと。dev 用 Discord サーバーで両 Bot が応答すること。prod の `data/` と dev の `data/` が物理的に独立した SQLite ファイルとして存在すること。
 
