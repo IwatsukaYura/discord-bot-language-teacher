@@ -34,26 +34,31 @@ The user submits a single word or short phrase. FIRST decide which mode applies 
 
 MODE A — DIRECT LOOKUP (the submitted word IS a {target_name} word)
   - ALL senses share the SAME `headword`, equal to the user's submitted word (normalized to a base/dictionary form if needed).
-  - Senses differ by MEANING. Example: "bank" → sense 1 = financial institution, sense 2 = edge of a river. Both senses have headword "bank".
+  - Senses differ by MEANING. Split into separate senses when the word maps to substantially different {explanation_name} translations.
+  - Example: "retrieval" → sense 1: translations=["検索", "取り出し"], meaning about data/information context; sense 2: translations=["回収"], meaning about physical recovery. These ARE different enough.
+  - Example: "bank" → sense 1: translations=["銀行"]; sense 2: translations=["土手", "川岸"].
+  - Combine into ONE sense only when meanings genuinely overlap (e.g. "apple" has one common meaning).
   - `examples[].source` is a natural {target_name} sentence that contains the headword.
-  - `examples[].translation` is a natural {explanation_name} translation. Do NOT inject the {target_name} word into the {explanation_name} translation; write it normally as it would appear in {explanation_name}.
+  - `examples[].translation` is a natural {explanation_name} translation. Do NOT inject the {target_name} word; write naturally.
 
 MODE B — REVERSE LOOKUP (the submitted word is a {explanation_name} word, asking for the {target_name} equivalent)
-  - Each sense has its OWN distinct {target_name} `headword`, representing a different {target_name} equivalent of the submitted word.
-  - Example: user submits "retrieval" (English) and the target is Japanese → sense 1 headword = "検索" (IT context), sense 2 headword = "回収" (recovering a lost item).
-  - `examples[].source` is a natural {target_name} sentence that contains THAT sense's headword.
-  - `examples[].translation` is a natural {explanation_name} sentence that MUST contain the user's submitted form (or its inflection / part-of-speech variant). This lets the learner see their own word appearing in the translation.
+  - Each sense has its OWN distinct {target_name} `headword`.
+  - `translations` lists the {explanation_name} words corresponding to that sense's headword. Typically includes the user's submitted word plus near-synonyms.
+  - Example: user submits "retrieval" (English), target is Japanese → sense 1: headword="検索", translations=["search", "retrieval", "lookup"]; sense 2: headword="回収", translations=["recovery", "collection"].
+  - `examples[].source` is a natural {target_name} sentence containing that sense's headword.
+  - `examples[].translation` is a natural {explanation_name} sentence that MUST contain the user's submitted form (or its inflection).
 
 How to decide the mode:
 - If the submitted word's primary language is {target_name}, use MODE A.
 - If it's {explanation_name}, use MODE B.
-- For words that exist in both languages (loanwords, proper nouns, etc.), prefer MODE A.
+- For ambiguous loanwords / proper nouns, prefer MODE A.
 
-Rules common to both modes:
-- Provide 1-3 senses. If the word has only ONE main meaning, return ONE sense. Do NOT pad with niche or rare meanings just to fill the array.
+Common rules:
+- Provide 1-3 senses. If the word has only one main meaning, return ONE sense. Do NOT pad with niche meanings.
 - Provide exactly 2 examples per sense.
+- `translations` is a list of 1-3 short {explanation_name} words/phrases (NOT full sentences). Order by typicality.
 {headword_reading_rule}
-- `meaning` and `usage` are written in {explanation_name} for an early-stage learner (simple wording, no jargon).
+- `meaning` and `usage` are written in {explanation_name} for an early-stage learner.
 
 Return a JSON object with this exact structure:
 
@@ -64,10 +69,11 @@ Return a JSON object with this exact structure:
     {{
       "headword": "see mode rules above (always in {target_name})",{headword_reading_field}
       "part_of_speech": "noun / verb / adjective / etc.",
+      "translations": ["one {explanation_name} word/phrase", "another"],
       "meaning": "brief meaning in {explanation_name}",
       "usage": "1-2 short notes about usage or collocations in {explanation_name}",
       "examples": [
-        {{"source": "natural {target_name} sentence", "translation": "natural {explanation_name} translation (see mode rules)"}}
+        {{"source": "natural {target_name} sentence", "translation": "natural {explanation_name} translation"}}
       ]
     }}
   ]
