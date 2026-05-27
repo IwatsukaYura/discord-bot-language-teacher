@@ -39,8 +39,10 @@ get_param() {
 }
 
 GEMINI_API_KEY=$(get_param "$PARAM_PREFIX/gemini-api-key")
-REPORT_CHANNEL_ID=$(get_param "$PARAM_PREFIX/report-channel-id")
-QUIZ_CHANNEL_ID=$(get_param "$PARAM_PREFIX/quiz-channel-id")
+EN_REPORT_CHANNEL_ID=$(get_param "$PARAM_PREFIX/en-report-channel-id")
+JA_REPORT_CHANNEL_ID=$(get_param "$PARAM_PREFIX/ja-report-channel-id")
+EN_QUIZ_CHANNEL_ID=$(get_param "$PARAM_PREFIX/en-quiz-channel-id")
+JA_QUIZ_CHANNEL_ID=$(get_param "$PARAM_PREFIX/ja-quiz-channel-id")
 EN_LEARNER_NAME=$(get_param "$PARAM_PREFIX/en-learner-name")
 JA_LEARNER_NAME=$(get_param "$PARAM_PREFIX/ja-learner-name")
 EN_LEARNER_DISCORD_ID=$(get_param "$PARAM_PREFIX/en-learner-discord-id")
@@ -52,13 +54,15 @@ write_env_file() {
   local file="$1"
   local role="$2"
   local token="$3"
+  local report_channel_id="$4"
+  local quiz_channel_id="$5"
   umask 077
   cat > "$file" <<EOF
 BOT_ROLE=$role
 DISCORD_BOT_TOKEN=$token
 GEMINI_API_KEY=$GEMINI_API_KEY
-REPORT_CHANNEL_ID=$REPORT_CHANNEL_ID
-QUIZ_CHANNEL_ID=$QUIZ_CHANNEL_ID
+REPORT_CHANNEL_ID=$report_channel_id
+QUIZ_CHANNEL_ID=$quiz_channel_id
 EN_LEARNER_NAME=$EN_LEARNER_NAME
 EN_LEARNER_DISCORD_ID=$EN_LEARNER_DISCORD_ID
 JA_LEARNER_NAME=$JA_LEARNER_NAME
@@ -66,8 +70,8 @@ JA_LEARNER_DISCORD_ID=$JA_LEARNER_DISCORD_ID
 EOF
 }
 
-write_env_file ".env.en" "en_teacher" "$DISCORD_BOT_TOKEN_EN"
-write_env_file ".env.ja" "ja_teacher" "$DISCORD_BOT_TOKEN_JA"
+write_env_file ".env.en" "en_teacher" "$DISCORD_BOT_TOKEN_EN" "$EN_REPORT_CHANNEL_ID" "$EN_QUIZ_CHANNEL_ID"
+write_env_file ".env.ja" "ja_teacher" "$DISCORD_BOT_TOKEN_JA" "$JA_REPORT_CHANNEL_ID" "$JA_QUIZ_CHANNEL_ID"
 
 echo "==> [$ENV] Ensuring data directory exists with correct ownership..."
 mkdir -p data
