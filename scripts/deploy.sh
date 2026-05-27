@@ -1,17 +1,34 @@
 #!/bin/bash
 set -euo pipefail
 
-REPO_DIR="/opt/language-teacher"
+if [ $# -lt 1 ]; then
+  echo "Usage: $0 <prod|dev>" >&2
+  exit 1
+fi
+
+ENV="$1"
+
+case "$ENV" in
+  prod) BRANCH="main"    ;;
+  dev)  BRANCH="develop" ;;
+  *)
+    echo "Invalid env: $ENV (must be prod or dev)" >&2
+    exit 1
+    ;;
+esac
+
+REPO_DIR="/opt/language-teacher/$ENV"
 AWS_REGION="${AWS_REGION:-ap-northeast-1}"
-PARAM_PREFIX="/language-teacher"
+PARAM_PREFIX="/language-teacher/$ENV"
+export COMPOSE_PROJECT_NAME="lt-$ENV"
 
 cd "$REPO_DIR"
 
-echo "==> Pulling latest code..."
-git fetch origin main
-git reset --hard origin/main
+echo "==> [$ENV] Pulling latest code from origin/$BRANCH..."
+git fetch origin "$BRANCH"
+git reset --hard "origin/$BRANCH"
 
-echo "==> Fetching secrets from SSM Parameter Store..."
+echo "==> [$ENV] Fetching secrets from SSM ($PARAM_PREFIX)..."
 get_param() {
   aws ssm get-parameter \
     --name "$1" \
@@ -21,24 +38,50 @@ get_param() {
     --region "$AWS_REGION"
 }
 
-umask 077
-cat > .env <<EOF
-DISCORD_BOT_TOKEN=$(get_param "$PARAM_PREFIX/discord-bot-token")
 GEMINI_API_KEY=$(get_param "$PARAM_PREFIX/gemini-api-key")
-REPORT_CHANNEL_ID=$(get_param "$PARAM_PREFIX/report-channel-id")
+EN_REPORT_CHANNEL_ID=$(get_param "$PARAM_PREFIX/en-report-channel-id")
+JA_REPORT_CHANNEL_ID=$(get_param "$PARAM_PREFIX/ja-report-channel-id")
+EN_QUIZ_CHANNEL_ID=$(get_param "$PARAM_PREFIX/en-quiz-channel-id")
+JA_QUIZ_CHANNEL_ID=$(get_param "$PARAM_PREFIX/ja-quiz-channel-id")
 EN_LEARNER_NAME=$(get_param "$PARAM_PREFIX/en-learner-name")
 JA_LEARNER_NAME=$(get_param "$PARAM_PREFIX/ja-learner-name")
-EOF
+EN_LEARNER_DISCORD_ID=$(get_param "$PARAM_PREFIX/en-learner-discord-id")
+JA_LEARNER_DISCORD_ID=$(get_param "$PARAM_PREFIX/ja-learner-discord-id")
+DISCORD_BOT_TOKEN_EN=$(get_param "$PARAM_PREFIX/discord-bot-token-en")
+DISCORD_BOT_TOKEN_JA=$(get_param "$PARAM_PREFIX/discord-bot-token-ja")
 
-echo "==> Ensuring data directory exists with correct ownership..."
+write_env_file() {
+  local file="$1"
+  local role="$2"
+  local token="$3"
+  local report_channel_id="$4"
+  local quiz_channel_id="$5"
+  umask 077
+  cat > "$file" <<EOF
+BOT_ROLE=$role
+DISCORD_BOT_TOKEN=$token
+GEMINI_API_KEY=$GEMINI_API_KEY
+REPORT_CHANNEL_ID=$report_channel_id
+QUIZ_CHANNEL_ID=$quiz_channel_id
+EN_LEARNER_NAME=$EN_LEARNER_NAME
+EN_LEARNER_DISCORD_ID=$EN_LEARNER_DISCORD_ID
+JA_LEARNER_NAME=$JA_LEARNER_NAME
+JA_LEARNER_DISCORD_ID=$JA_LEARNER_DISCORD_ID
+EOF
+}
+
+write_env_file ".env.en" "en_teacher" "$DISCORD_BOT_TOKEN_EN" "$EN_REPORT_CHANNEL_ID" "$EN_QUIZ_CHANNEL_ID"
+write_env_file ".env.ja" "ja_teacher" "$DISCORD_BOT_TOKEN_JA" "$JA_REPORT_CHANNEL_ID" "$JA_QUIZ_CHANNEL_ID"
+
+echo "==> [$ENV] Ensuring data directory exists with correct ownership..."
 mkdir -p data
 chown -R 1000:1000 data
 
-echo "==> Building and starting container..."
+echo "==> [$ENV] Building and starting containers (project: $COMPOSE_PROJECT_NAME)..."
 docker compose up -d --build
 
-echo "==> Recent logs:"
+echo "==> [$ENV] Recent logs:"
 sleep 3
 docker compose logs --tail=20 || true
 
-echo "==> Deploy complete."
+echo "==> [$ENV] Deploy complete."

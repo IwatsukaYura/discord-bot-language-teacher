@@ -10,14 +10,28 @@ logger = logging.getLogger(__name__)
 def _build_system_prompt(target_lang: str, explanation_lang: str) -> str:
     target_name = "English" if target_lang == "en" else "Japanese"
     explanation_name = "Japanese" if explanation_lang == "ja" else "English"
-    return f"""You are a {target_name}-to-{explanation_name} translator for language learners.
-Given a {target_name} sentence, return a JSON object with this exact structure:
+    reading_rule = (
+        '\n  "source_reading": "hiragana reading of source_text for any kanji it contains; empty string if no kanji",'
+        if target_lang == "ja"
+        else ""
+    )
+    return f"""You are a {target_name} sentence teacher for {explanation_name} speakers.
+
+The user submits a sentence. It may be either:
+  (a) in {target_name} — the language they are studying, or
+  (b) in {explanation_name} — their native language, asking how to say it in {target_name}.
+
+If (a), use the user's sentence as `source_text`.
+If (b), translate it into natural {target_name} and use THAT as `source_text`.
+
+Return a JSON object with this exact structure:
 
 {{
+  "source_text": "the {target_name} sentence (see rule above)",{reading_rule}
   "translation": "natural translation in {explanation_name}",
-  "literal_translation": "more literal translation in {explanation_name} for understanding nuance (empty string if unnecessary)",
+  "literal_translation": "more literal translation in {explanation_name} for nuance (empty string if unnecessary)",
   "key_points": [
-    "brief note about an important expression or grammar in {explanation_name}",
+    "brief note about an important expression or grammar in {explanation_name}, written simply for an early-stage learner",
     "another note"
   ]
 }}
@@ -48,7 +62,8 @@ async def handle_sentence(
         raise ValueError(f"Invalid JSON from Gemini: {e}") from e
 
     return {
-        "source_text": text,
+        "source_text": parsed["source_text"],
+        "source_reading": parsed.get("source_reading", ""),
         "translation": parsed["translation"],
         "literal_translation": parsed.get("literal_translation", ""),
         "key_points": parsed.get("key_points", []),

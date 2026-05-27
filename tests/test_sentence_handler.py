@@ -7,6 +7,7 @@ from llm import gemini_client
 
 
 MOCK_VALID_RESPONSE = json.dumps({
+    "source_text": "Could you pick me up at the station?",
     "translation": "駅まで迎えに来てもらえますか?",
     "literal_translation": "あなたは駅で私をピックアップしてもらえますか?",
     "key_points": [
@@ -17,15 +18,23 @@ MOCK_VALID_RESPONSE = json.dumps({
 
 
 class TestBuildSystemPrompt:
-    def test_for_english_input_mentions_english_and_japanese(self):
+    def test_for_english_target_mentions_english_and_japanese(self):
         prompt = sentence_handler._build_system_prompt("en", "ja")
         assert "English" in prompt
         assert "Japanese" in prompt
 
-    def test_for_japanese_input_mentions_japanese_and_english(self):
+    def test_for_japanese_target_mentions_japanese_and_english(self):
         prompt = sentence_handler._build_system_prompt("ja", "en")
         assert "Japanese" in prompt
         assert "English" in prompt
+
+    def test_japanese_target_includes_source_reading_field(self):
+        prompt = sentence_handler._build_system_prompt("ja", "en")
+        assert '"source_reading"' in prompt
+
+    def test_english_target_omits_source_reading_field(self):
+        prompt = sentence_handler._build_system_prompt("en", "ja")
+        assert '"source_reading"' not in prompt
 
 
 class TestStripCodeFences:
@@ -80,7 +89,11 @@ class TestHandleSentence:
 
     async def test_defaults_literal_translation_when_missing(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
-            return json.dumps({"translation": "test", "key_points": []})
+            return json.dumps({
+                "source_text": "test",
+                "translation": "test",
+                "key_points": [],
+            })
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
         result = await sentence_handler.handle_sentence(
@@ -92,7 +105,10 @@ class TestHandleSentence:
 
     async def test_defaults_key_points_to_empty_list_when_missing(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
-            return json.dumps({"translation": "test"})
+            return json.dumps({
+                "source_text": "test",
+                "translation": "test",
+            })
 
         monkeypatch.setattr(gemini_client, "generate", fake_generate)
         result = await sentence_handler.handle_sentence(
@@ -101,3 +117,35 @@ class TestHandleSentence:
             explanation_lang="ja",
         )
         assert result["key_points"] == []
+
+    async def test_reverse_lookup_uses_translated_source_text(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return json.dumps({
+                "source_text": "駅まで迎えに来てもらえますか?",
+                "source_reading": "えきまでむかえにきてもらえますか",
+                "translation": "Could you pick me up at the station?",
+                "literal_translation": "",
+                "key_points": [],
+            })
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        result = await sentence_handler.handle_sentence(
+            text="Could you pick me up at the station?",
+            target_lang="ja",
+            explanation_lang="en",
+        )
+
+        assert result["source_text"] == "駅まで迎えに来てもらえますか?"
+        assert result["source_reading"] == "えきまでむかえにきてもらえますか"
+
+    async def test_source_reading_defaults_to_empty_when_missing(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return MOCK_VALID_RESPONSE
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        result = await sentence_handler.handle_sentence(
+            text="anything",
+            target_lang="en",
+            explanation_lang="ja",
+        )
+        assert result["source_reading"] == ""
