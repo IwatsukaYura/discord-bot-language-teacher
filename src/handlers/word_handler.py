@@ -35,7 +35,7 @@ The user submits a single word or short phrase. FIRST decide which mode applies 
 MODE A — DIRECT LOOKUP (the submitted word IS a {target_name} word)
   - ALL senses share the SAME `headword`, equal to the user's submitted word (normalized to a base/dictionary form if needed).
   - Senses differ by MEANING. Split into separate senses when the word maps to substantially different {explanation_name} translations.
-  - Example: "retrieval" → sense 1: translations=["検索", "取り出し"], meaning about data/information context; sense 2: translations=["回収"], meaning about physical recovery. These ARE different enough.
+  - Example: "retrieval" → sense 1: translations=["検索", "取り出し"] (data context); sense 2: translations=["回収"] (physical recovery). These ARE different enough.
   - Example: "bank" → sense 1: translations=["銀行"]; sense 2: translations=["土手", "川岸"].
   - Combine into ONE sense only when meanings genuinely overlap (e.g. "apple" has one common meaning).
   - `examples[].source` is a natural {target_name} sentence that contains the headword.
@@ -58,7 +58,6 @@ Common rules:
 - Provide exactly 2 examples per sense.
 - `translations` is a list of 1-3 short {explanation_name} words/phrases (NOT full sentences). Order by typicality.
 {headword_reading_rule}
-- `meaning` and `usage` are written in {explanation_name} for an early-stage learner.
 
 Return a JSON object with this exact structure:
 
@@ -70,8 +69,6 @@ Return a JSON object with this exact structure:
       "headword": "see mode rules above (always in {target_name})",{headword_reading_field}
       "part_of_speech": "noun / verb / adjective / etc.",
       "translations": ["one {explanation_name} word/phrase", "another"],
-      "meaning": "brief meaning in {explanation_name}",
-      "usage": "1-2 short notes about usage or collocations in {explanation_name}",
       "examples": [
         {{"source": "natural {target_name} sentence", "translation": "natural {explanation_name} translation"}}
       ]

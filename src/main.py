@@ -57,19 +57,16 @@ def _format_sense_heading(sense: dict, index: int, multi: bool) -> str:
 
 def _format_sense_body(sense: dict, is_ja: bool) -> str:
     translation_label = "訳" if is_ja else "Translation"
-    meaning_label = "意味" if is_ja else "Meaning"
-    usage_label = "使い方" if is_ja else "Usage"
 
     lines = []
     translations = sense.get("translations", [])
     if translations:
         lines.append(f"**{translation_label}**: {' / '.join(translations)}")
-    lines.append(f"**{meaning_label}**: {sense['meaning']}")
-    lines.append(f"**{usage_label}**: {sense['usage']}")
 
     examples = sense.get("examples", [])
     if examples:
-        lines.append("")
+        if lines:
+            lines.append("")
         for j, e in enumerate(examples, start=1):
             lines.append(f"{j}. {e['source']}")
             lines.append(f"    → {e['translation']}")

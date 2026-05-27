@@ -15,8 +15,6 @@ MOCK_SINGLE_SENSE_EN_TARGET = json.dumps({
             "headword_reading": "",
             "part_of_speech": "noun",
             "translations": ["リンゴ"],
-            "meaning": "赤や緑の皮を持つ果物",
-            "usage": "日常語",
             "examples": [
                 {"source": "I ate an apple.", "translation": "りんごを食べた。"},
                 {"source": "She likes apples.", "translation": "彼女はりんごが好きです。"},
@@ -35,8 +33,6 @@ MOCK_MULTI_SENSE_EN_DIRECT_LOOKUP = json.dumps({
             "headword_reading": "",
             "part_of_speech": "noun",
             "translations": ["銀行"],
-            "meaning": "お金を預けたり借りたりする金融機関",
-            "usage": "最も一般的な意味",
             "examples": [
                 {"source": "I went to the bank to withdraw cash.", "translation": "現金を引き出すために銀行へ行った。"},
                 {"source": "The bank closes at 3 PM.", "translation": "銀行は午後3時に閉まる。"},
@@ -47,8 +43,6 @@ MOCK_MULTI_SENSE_EN_DIRECT_LOOKUP = json.dumps({
             "headword_reading": "",
             "part_of_speech": "noun",
             "translations": ["土手", "川岸"],
-            "meaning": "川や湖のふち、土手",
-            "usage": "地形を指すとき",
             "examples": [
                 {"source": "We had a picnic on the bank of the river.", "translation": "川の土手でピクニックをした。"},
                 {"source": "Trees grew along the bank.", "translation": "土手沿いに木々が生えていた。"},
@@ -67,8 +61,6 @@ MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP = json.dumps({
             "headword_reading": "けんさく",
             "part_of_speech": "noun / suru-verb",
             "translations": ["search", "retrieval", "lookup"],
-            "meaning": "Retrieving information from a database or server.",
-            "usage": "Common in technical contexts.",
             "examples": [
                 {"source": "データベースからレコードを検索する。", "translation": "I retrieve records from the database."},
                 {"source": "素早く情報を検索する。", "translation": "Search information quickly with retrieval."},
@@ -79,8 +71,6 @@ MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP = json.dumps({
             "headword_reading": "かいしゅう",
             "part_of_speech": "noun / suru-verb",
             "translations": ["recovery", "collection"],
-            "meaning": "Bringing back a lost item.",
-            "usage": "Used for physical objects.",
             "examples": [
                 {"source": "犬がボールを回収する。", "translation": "The dog retrieves the ball."},
                 {"source": "失くした財布を回収した。", "translation": "I retrieved the lost wallet."},
@@ -99,8 +89,6 @@ MOCK_JA_DIRECT_LOOKUP = json.dumps({
             "headword_reading": "しさつ",
             "part_of_speech": "noun / suru-verb",
             "translations": ["inspection", "observation visit"],
-            "meaning": "Visiting a location to observe and inspect.",
-            "usage": "Used in official or formal contexts.",
             "examples": [
                 {"source": "現場を視察する。", "translation": "I inspect the site."},
                 {"source": "工場を視察した。", "translation": "I visited the factory for inspection."},
@@ -255,9 +243,9 @@ class TestHandleWord:
         # MODE A では全 sense が同じ headword(= user input)
         assert result["senses"][0]["headword"] == "bank"
         assert result["senses"][1]["headword"] == "bank"
-        # 意味は異なる
-        assert "金融" in result["senses"][0]["meaning"]
-        assert "土手" in result["senses"][1]["meaning"]
+        # sense ごとに異なる translations(意味の違いはここに表れる)
+        assert "銀行" in result["senses"][0]["translations"]
+        assert "土手" in result["senses"][1]["translations"]
 
     async def test_reverse_lookup_returns_multiple_senses_with_target_lang_headwords(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
@@ -350,8 +338,7 @@ class TestHandleWord:
                     "headword": "apple",
                     "headword_reading": "",
                     "part_of_speech": "noun",
-                    "meaning": "...",
-                    "usage": "...",
+                    "translations": ["リンゴ"],
                     "examples": [],
                 }],
             })
