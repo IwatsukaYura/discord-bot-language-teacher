@@ -3,6 +3,7 @@
 | 項目         | 内容                                                                |
 | ------------ | ------------------------------------------------------------------- |
 | 作成日       | 2026-05-26                                                          |
+| 最終更新     | 2026-05-27(dev/prod 並存構成を反映)                                |
 | 範囲         | 過去に手動構築された AWS リソースの**設計意図**と**判断根拠**を後追いで記録 |
 | 対象アカウント | `805865757574` / `ap-northeast-1`                                  |
 | IaC          | 未導入(全リソース手動構築)                                        |
@@ -11,13 +12,13 @@
 
 ---
 
-## 1. システム構成
+## 1. システム構成(dev/prod 並存)
 
 ```mermaid
 flowchart TB
   subgraph GH[GitHub]
-    Repo["repo: IwatsukaYura/discord-bot-language-teacher"]
-    Actions[".github/workflows/deploy.yml"]
+    Repo["repo: IwatsukaYura/discord-bot-language-teacher<br/>branches: main / develop"]
+    Actions[".github/workflows/deploy.yml<br/>main → prod / develop → dev<br/>workflow_dispatch で手動選択も可"]
     Repo --> Actions
   end
 
@@ -26,51 +27,76 @@ flowchart TB
     DeployRole["IAM Role: GitHubActionsDeployRole<br/>ssm:SendCommand on EC2 のみ"]
 
     subgraph SSMStore["SSM Parameter Store"]
-      Params["/language-teacher/*<br/>(SecureString = SSM デフォルト KMS)"]
+      ProdParams["/language-teacher/prod/*"]
+      DevParams["/language-teacher/dev/*"]
     end
 
     subgraph EC2VPC["Default VPC (172.31.0.0/16) / public subnet"]
       SG["SG: language-teacher-bot-sg<br/>Ingress 全閉鎖 / Egress 全開放"]
-      EC2["EC2: t3.micro (Amazon Linux 2023)<br/>SSH 鍵なし / SSM Session Manager 経由<br/>Instance Profile: BotEC2-SSMRole"]
-      EBS[("EBS gp3 8 GiB<br/>/opt/language-teacher")]
+      EC2["EC2: t3.micro (Amazon Linux 2023)<br/>SSH 鍵なし / SSM Session Manager 経由<br/>Instance Profile: BotEC2-SSMRole<br/>(IAM ポリシーは /language-teacher/* 配下を再帰許可)"]
+      EBS[("EBS gp3 8 GiB")]
       SG --- EC2
       EC2 --- EBS
-    end
 
-    subgraph EC2Inside["EC2 上のプロセス"]
-      Compose["docker compose up -d --build<br/>(restart: unless-stopped)"]
-      BotEN["コンテナ: bot-en"]
-      BotJA["コンテナ: bot-ja"]
-      DB[("SQLite (data/ ボリューム)")]
-      Compose --> BotEN
-      Compose --> BotJA
-      BotEN --> DB
-      BotJA --> DB
-    end
+      subgraph ProdEnv["lt-prod (/opt/language-teacher/prod)"]
+        ProdCompose["docker compose<br/>project: lt-prod"]
+        ProdBotEN["bot-en (prod)"]
+        ProdBotJA["bot-ja (prod)"]
+        ProdDB[("SQLite<br/>prod/data/")]
+        ProdCompose --> ProdBotEN
+        ProdCompose --> ProdBotJA
+        ProdBotEN --> ProdDB
+        ProdBotJA --> ProdDB
+      end
 
-    EC2 -.実行.-> Compose
+      subgraph DevEnv["lt-dev (/opt/language-teacher/dev)"]
+        DevCompose["docker compose<br/>project: lt-dev"]
+        DevBotEN["bot-en (dev)"]
+        DevBotJA["bot-ja (dev)"]
+        DevDB[("SQLite<br/>dev/data/")]
+        DevCompose --> DevBotEN
+        DevCompose --> DevBotJA
+        DevBotEN --> DevDB
+        DevBotJA --> DevDB
+      end
+
+      EC2 -.deploy.sh prod.-> ProdCompose
+      EC2 -.deploy.sh dev.-> DevCompose
+    end
   end
 
-  subgraph External["外部"]
-    Discord[(Discord API)]
-    Gemini[(Gemini API)]
+  subgraph DiscordProd["Discord — 本番サーバー"]
+    ProdGuild["@英語先生Bot<br/>@日本語先生Bot"]
   end
 
-  Actions -- "AssumeRoleWithWebIdentity (OIDC)" --> OIDC
+  subgraph DiscordDev["Discord — dev サーバー(隔離)"]
+    DevGuild["@英語先生Bot (Dev)<br/>@日本語先生Bot (Dev)"]
+  end
+
+  Gemini[(Gemini API)]
+
+  Actions -- "OIDC AssumeRole" --> OIDC
   OIDC --> DeployRole
-  DeployRole -- "ssm:SendCommand<br/>AWS-RunShellScript" --> EC2
-  EC2 -- "BotEC2-SSMRole<br/>(ssm:GetParameter + kms:Decrypt)" --> Params
-  BotEN -- "WebSocket / HTTPS" --> Discord
-  BotJA -- "WebSocket / HTTPS" --> Discord
-  BotEN -- "HTTPS" --> Gemini
-  BotJA -- "HTTPS" --> Gemini
+  DeployRole -- "ssm:SendCommand" --> EC2
+  EC2 -- "ssm:GetParameter + kms:Decrypt" --> ProdParams
+  EC2 -- "ssm:GetParameter + kms:Decrypt" --> DevParams
+
+  ProdBotEN --> ProdGuild
+  ProdBotJA --> ProdGuild
+  DevBotEN --> DevGuild
+  DevBotJA --> DevGuild
+
+  ProdBotEN --> Gemini
+  ProdBotJA --> Gemini
+  DevBotEN --> Gemini
+  DevBotJA --> Gemini
 ```
 
 **デプロイの流れ**
 
-1. `main` push → GitHub Actions が OIDC で `GitHubActionsDeployRole` を assume
-2. `aws ssm send-command` で EC2 上に `bash /opt/language-teacher/scripts/deploy.sh` を流す
-3. EC2 上の `deploy.sh` が `git reset --hard origin/main` → SSM Parameter Store から `.env` を生成 → `docker compose up -d --build`
+1. `main` push → GitHub Actions が OIDC で `GitHubActionsDeployRole` を assume → SSM Send-Command で `bash /opt/language-teacher/prod/scripts/deploy.sh prod`
+2. `develop` push → 同様に `... /dev/scripts/deploy.sh dev`
+3. EC2 上の `deploy.sh` が `git reset --hard origin/<branch>` → `/language-teacher/<env>/*` から `.env.en` / `.env.ja` を生成 → `COMPOSE_PROJECT_NAME=lt-<env>` で `docker compose up -d --build`
 4. GitHub Actions は `ssm:GetCommandInvocation` でステータスを polling
 
 ---
@@ -182,7 +208,32 @@ flowchart TB
 
 - カスタム VPC + プライベートサブネット + NAT Gateway: NAT Gateway は $0.045/h × 24h × 30d ≈ $32/月 と高価。Bot のアウトバウンド通信(Discord/Gemini API)のために常時稼働させるのは過剰。
 
-### 2.9 OIDC プロバイダの流用
+### 2.9 dev/prod を同一 EC2 上に並存
+
+**なぜこれを選んだか**
+
+- **検証環境のためだけに EC2 を 1 台追加するのは過剰**:dev で動かすのは 2 コンテナ追加のみで、t3.micro の余剰リソースに収まる。
+- **論理的な隔離は Docker Compose project name + ディレクトリ + SQLite ファイルで十分**:
+  - `/opt/language-teacher/{prod,dev}/` でコードと `data/` が物理分離
+  - `COMPOSE_PROJECT_NAME=lt-{prod,dev}` で同じサービス名(`bot-en` / `bot-ja`)を並行起動できる
+  - SQLite ファイルが別ディレクトリにあるので、片方の操作ミスで他方が壊れない
+- **SSM Parameter Store の prefix(`/language-teacher/{prod,dev}/*`)で環境別に値を分離**:既存の IAM ポリシー(`/language-teacher/*` 配下を再帰許可)を変更せずに両環境をカバー。
+- **Discord Bot アプリ自体を環境別に 2 個ずつ計 4 個に分ける**:同じ Bot トークンを 2 プロセスで使うと WebSocket 接続が競合するため、物理的に別 Bot とする。dev サーバーには prod Bot を絶対に招待しないという運用ルールで誤動作を防ぐ。
+
+**検討した代替案**
+
+| 案 | 不採用理由 |
+| --- | --- |
+| dev 用 EC2 を別途立てる | t3.micro 追加で月額 ~$8、SG / IAM Instance Profile / SSM 連携の重複設定が必要。今のスケールに見合わない。 |
+| ローカル PC のみで dev | Discord WebSocket は常時接続が前提なので、開発者が PC を閉じている間は検証不能。連続的に dev を回したい場合に不便。 |
+| ECS / Fargate で dev を別タスクに | クラスター・タスク定義・サービス管理が一気に膨らむ。EC2 単体の方が今は単純。 |
+
+**残課題**
+
+- 同一 EC2 上に乗っているため、**EC2 ホスト障害時は両環境が同時に落ちる**(2 環境とも稼働継続することは保証していない)。dev は落ちても問題ないという前提で許容している。
+- dev のリソース消費(主にメモリ)が増えてきた場合、t3.micro では prod に圧迫がかかる可能性。CloudWatch でメモリメトリクスを取っていないため、症状が出てから気づく構造になっている(将来検討)。
+
+### 2.10 OIDC プロバイダの流用
 
 **なぜこれを選んだか**
 
@@ -192,28 +243,30 @@ flowchart TB
 
 ---
 
-## 3. 現状の課題(本フェーズで対応する dev/prod 分離関連)
+## 3. 解消済みの課題(Phase 7-8 で対応)
 
-| # | 課題 | 対応単位 |
+| # | 課題(以前) | 対応 |
 | - | ---- | -------- |
-| 1 | 環境概念なし(`main` push が即本番反映、検証環境がない) | D-1〜D-6 |
-| 2 | `.env` 単一構成で、2 Bot 化(`.env.en` / `.env.ja`)に未対応 | D-1, D-2 |
-| 3 | SSM パラメータが平坦(`/language-teacher/*`)で環境分離なし | D-5 |
-| 4 | `EN_LEARNER_DISCORD_ID` / `JA_LEARNER_DISCORD_ID` / `QUIZ_CHANNEL_ID` が SSM に未登録(現在はデイリークイズが無効化されているはず) | D-5 |
+| 1 | 環境概念なし(`main` push が即本番反映、検証環境がない) | dev/prod 分離(2.9 参照) |
+| 2 | `.env` 単一構成で、2 Bot 化に未対応 | `.env.en` / `.env.ja` + `BOT_ROLE`(Phase 7) |
+| 3 | SSM パラメータが平坦(`/language-teacher/*`) | `/language-teacher/{prod,dev}/*` に分離 |
+| 4 | クイズ機能用パラメータ(`QUIZ_CHANNEL_ID` / 学習者 Discord ID)が SSM に未登録 | 両環境とも投入済み |
+| 5 | 単一クイズ/レポートチャンネルに英語学習者向け / 日本語学習者向けが混在し視認性が悪い | Bot ロール別にチャンネル分離(Phase 9 / SSM パラメータ 9 → 11 個へ拡張) |
 
-## 4. 中長期の課題(本フェーズでは未対応)
+## 4. 中長期の課題(未対応)
 
-- EBS スナップショットの自動取得(DB 喪失リスク対策)
-- 本番落ち時の通知経路(現状、自分で気づくしかない)
-- IaC 化(Terraform / Pulumi 等で構成を再現可能に)
-- ロードテスト・容量計画(現状は感覚で「t3.micro で足りる」と判断している)
+- **DB バックアップ**:SQLite ファイルは EBS 上にあるだけ。EBS スナップショットの自動取得は未設定。`AWS Backup` または Data Lifecycle Manager の日次運用を将来検討。
+- **障害通知**:本番落ち時の通知経路がない(現状、自分で気づくしかない)。CloudWatch Logs / Metric Filter / SNS の最小構成を将来検討。
+- **リソース監視**:EC2 のメモリ・CPU の常時監視がない。dev のリソース消費が増えてきた時に prod を圧迫する可能性に気づけない。
+- **IaC 化**:全リソース手動構築のため、再現性がない。Terraform / Pulumi 等で構成を再現可能に。
+- **容量計画**:現状は感覚で「t3.micro で足りる」と判断している。実測ベースの確認なし。
 
 ## 5. 未確認 / 不明な情報
 
-このドキュメント作成時点で、AWS API からは確認できなかった事項:
+AWS API からは確認できなかった事項:
 
-- **EC2 の初期セットアップ手順**(Docker のインストール、`/opt/language-teacher` の clone 元、git remote 設定など):userData 空、手動構築のためログが残っていない。
+- **EC2 の初期セットアップ手順**(Docker のインストール、`/opt/language-teacher` の clone 元、git remote 設定など):userData 空、手動構築のためログが残っていない。Phase 8 の dev/prod 並存化(`/opt/language-teacher/{prod,dev}/`)は手動で実施したが、再構築できる手順は [docs/dev-environment-setup.md](./dev-environment-setup.md) に集約済み。
 - **EC2 上の Docker / docker-compose のバージョン**:SSM Session で接続しないと不明。
-- **EBS スナップショットが実は手動で取られている可能性**:未確認。
+- **EBS スナップショットが手動で取られている可能性**:未確認(おそらく未設定)。
 - **CloudWatch Alarm の有無**:未確認(おそらく未設定)。
 - **iwatsuka-portfolio プロジェクトの Terraform 内容**:本リポジトリの管理対象外。OIDC Provider 以外に流用しているリソースはないと**信じている**が、確証はない。

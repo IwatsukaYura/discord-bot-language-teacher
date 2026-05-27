@@ -51,12 +51,14 @@ The bot you mention determines who the audience is. The other bot is for the oth
    uv sync
    ```
 
-3. Create per-role env files based on the examples:
+3. Create per-role env files from the shared example:
 
    ```bash
-   cp .env.en.example .env.en
-   cp .env.ja.example .env.ja
+   cp .env.example .env.en   # set BOT_ROLE=en_teacher and English-teacher values
+   cp .env.example .env.ja   # set BOT_ROLE=ja_teacher and Japanese-teacher values
    ```
+
+   In `.env.en`, set `BOT_ROLE=en_teacher`, the English-teacher bot's `DISCORD_BOT_TOKEN`, and the channel IDs reserved for the English-teacher bot (`REPORT_CHANNEL_ID`, `QUIZ_CHANNEL_ID`). In `.env.ja`, set the Japanese-teacher equivalents.
 
    Required variables in each file:
 
@@ -65,8 +67,8 @@ The bot you mention determines who the audience is. The other bot is for the oth
    | `BOT_ROLE`              | `en_teacher` or `ja_teacher`                                 |
    | `DISCORD_BOT_TOKEN`     | Discord bot token (different per role)                       |
    | `GEMINI_API_KEY`        | Gemini API key                                               |
-   | `REPORT_CHANNEL_ID`     | Channel where the weekly report will be posted               |
-   | `QUIZ_CHANNEL_ID`       | Channel where the daily quiz will be posted                  |
+   | `REPORT_CHANNEL_ID`     | Channel for this bot's weekly report (different per role)    |
+   | `QUIZ_CHANNEL_ID`       | Channel for this bot's daily quiz (different per role)       |
    | `EN_LEARNER_NAME`       | Display name of the English-learner persona                  |
    | `EN_LEARNER_DISCORD_ID` | Discord user ID of the English learner                       |
    | `JA_LEARNER_NAME`       | Display name of the Japanese-learner persona                 |
@@ -117,9 +119,9 @@ See:
 - [docs/dev-environment-setup.md](docs/dev-environment-setup.md) — one-time setup for the dev environment
 - [docs/ssm-parameter-migration.md](docs/ssm-parameter-migration.md) — SSM parameter layout and migration steps
 
-## Weekly Report (per environment)
+## Weekly Report (per bot, per environment)
 
-Each bot posts only its own learner's summary to its own `REPORT_CHANNEL_ID`. dev and prod write to different channels (often different Discord servers).
+Each bot posts only its own learner's summary to its own `REPORT_CHANNEL_ID`. The English-teacher bot and the Japanese-teacher bot write to **different channels** so the two learners' reports don't interleave. dev and prod also use different channels (often different Discord servers).
 
 Every Sunday at 21:00 JST, each bot posts its own learner's summary to its `REPORT_CHANNEL_ID`. The report groups queries by kind (word / sentence / grammar) and shows each item with its result and occurrence count.
 
@@ -129,9 +131,9 @@ Manual run (specify the env file for the bot you want to run it as):
 uv run python src/scripts/run_report.py
 ```
 
-## Daily Quiz
+## Daily Quiz (per bot, per environment)
 
-Every morning at 08:00 JST, each bot posts a daily quiz to its `QUIZ_CHANNEL_ID`, mentioning its learner. The quiz includes one review item from the learner's previous lookups (excluded for 14 days after delivery) and one new word at a similar level.
+Every morning at 08:00 JST, each bot posts a daily quiz to **its own** `QUIZ_CHANNEL_ID`, mentioning its learner. The English-teacher bot posts to the English quiz channel and the Japanese-teacher bot posts to the Japanese quiz channel, so the two learners' problems don't interleave. The quiz includes one review item from the learner's previous lookups (excluded for 14 days after delivery) and one new word at a similar level.
 
 ## Testing
 

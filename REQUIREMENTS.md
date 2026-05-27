@@ -2,10 +2,10 @@
 
 | 項目                   | 内容                                  |
 | ---------------------- | ------------------------------------- |
-| ドキュメントバージョン | 0.8 (dev/prod 環境分離)               |
+| ドキュメントバージョン | 0.9 (チャンネル分離)                  |
 | 作成日                 | 2026-05-24                            |
-| 最終更新               | 2026-05-26                            |
-| ステータス             | 実装中(Phase 4 までリリース済み / Phase 7 で 2 Bot 構成に再編 / Phase 8 で dev/prod 分離) |
+| 最終更新               | 2026-05-27                            |
+| ステータス             | 実装中(Phase 4 までリリース済み / Phase 7 で 2 Bot 構成に再編 / Phase 8 で dev/prod 分離 / Phase 9 でチャンネル分離) |
 | 対象プロダクト         | Language Teacher Discord Bots(英語先生Bot / 日本語先生Bot) |
 
 ---
@@ -349,8 +349,8 @@ CREATE INDEX idx_quiz_user_source    ON quiz_log(discord_user_id, source_text);
 | Gemini API キー             | `GEMINI_API_KEY=xxx`                                         | `.env.{en,ja}`         |
 | 英→日 辞書 URL テンプレート | `https://dictionary.cambridge.org/dictionary/english/{word}` | `src/config.py` 定数(`en_teacher` で採用) |
 | 日→英 辞書 URL テンプレート | `https://jisho.org/search/{word}`                            | `src/config.py` 定数(`ja_teacher` で採用) |
-| レポート投稿チャンネル ID   | `REPORT_CHANNEL_ID=xxx`                                      | `.env.{en,ja}`         |
-| クイズ投稿チャンネル ID     | `QUIZ_CHANNEL_ID=xxx`                                        | `.env.{en,ja}`(未設定ならクイズ機能を無効化) |
+| レポート投稿チャンネル ID   | `REPORT_CHANNEL_ID=xxx`(各 Bot で別チャンネル ID)            | `.env.{en,ja}`         |
+| クイズ投稿チャンネル ID     | `QUIZ_CHANNEL_ID=xxx`(各 Bot で別チャンネル ID、未設定ならクイズ無効化) | `.env.{en,ja}`(en/ja で別チャンネル) |
 | 英語学習者の Discord ID     | `EN_LEARNER_DISCORD_ID=xxx`                                  | `.env.{en,ja}`(`en_teacher` で使用) |
 | 日本語学習者の Discord ID   | `JA_LEARNER_DISCORD_ID=xxx`                                  | `.env.{en,ja}`(`ja_teacher` で使用) |
 | 英語学習者の表示名          | `EN_LEARNER_NAME=Yura`                                       | `.env.{en,ja}`         |
@@ -605,6 +605,17 @@ Examples:
 - 設計判断とシステム構成は `docs/aws-infrastructure.md` に、初期セットアップは `docs/dev-environment-setup.md` に、SSM 移行手順は `docs/ssm-parameter-migration.md` に分離して記録。
 
 **完了条件:** `develop` ブランチへの push で dev 環境のみが更新され、本番には影響しないこと。dev 用 Discord サーバーで両 Bot が応答すること。prod の `data/` と dev の `data/` が物理的に独立した SQLite ファイルとして存在すること。
+
+### Phase 9: クイズ・週次レポートのチャンネル分離(本フェーズで対応)
+
+- 単一チャンネルに英語学習者向け / 日本語学習者向けのクイズと週次レポートが混在し、各学習者にとって自分のメンション以外がノイズになる。特にクイズは毎朝 2 種類が並んで投稿され、視認性が悪い。
+- 解決: Bot ロールごとに専用チャンネルを持たせる(`#en-quiz` / `#ja-quiz` / `#en-report` / `#ja-report`)。
+- `main.py` のコードは変更不要(`QUIZ_CHANNEL_ID` / `REPORT_CHANNEL_ID` を読むだけ)。各 Bot の `.env` に違う値が入る形にする。
+- SSM Parameter Store を以下に拡張(prod/dev 各 11 個):
+  - `en-quiz-channel-id`, `ja-quiz-channel-id`, `en-report-channel-id`, `ja-report-channel-id`(計 4 個)
+- `scripts/deploy.sh` で 4 個を取得し、各 `.env` に Bot ロールに応じた値を書き分け。
+
+**完了条件:** 英語学習者のチャンネルには英語学習者向けクイズ・レポートのみが投稿される。日本語学習者のチャンネルも同様。両者が混ざらないこと。
 
 ---
 
