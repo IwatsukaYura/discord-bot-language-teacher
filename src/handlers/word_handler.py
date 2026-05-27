@@ -30,43 +30,48 @@ def _build_system_prompt(target_lang: str, explanation_lang: str) -> str:
 
     return f"""You are a {target_name} dictionary teacher for {explanation_name} speakers.
 
-The user submits a single word or short phrase. It may be either:
-  (a) in {target_name} — the language they are studying, or
-  (b) in {explanation_name} — their native language, asking for the {target_name} equivalent.
+The user submits a single word or short phrase. FIRST decide which mode applies based on the language of the submitted word.
 
-Identify the distinct major senses of the user's input as expressed in {target_name}.
-EACH SENSE GETS ITS OWN {target_name} HEADWORD and its own examples.
+MODE A — DIRECT LOOKUP (the submitted word IS a {target_name} word)
+  - ALL senses share the SAME `headword`, equal to the user's submitted word (normalized to a base/dictionary form if needed).
+  - Senses differ by MEANING. Example: "bank" → sense 1 = financial institution, sense 2 = edge of a river. Both senses have headword "bank".
+  - `examples[].source` is a natural {target_name} sentence that contains the headword.
+  - `examples[].translation` is a natural {explanation_name} translation. Do NOT inject the {target_name} word into the {explanation_name} translation; write it normally as it would appear in {explanation_name}.
 
-For example, if the user submits "retrieval" (English) and the bot teaches Japanese,
-plausible senses are: 検索 (looking up info), 取り出し (extracting), 回収 (recovering a lost item),
-回復 (restoring). Pick 1-3 of the most useful for the learner.
+MODE B — REVERSE LOOKUP (the submitted word is a {explanation_name} word, asking for the {target_name} equivalent)
+  - Each sense has its OWN distinct {target_name} `headword`, representing a different {target_name} equivalent of the submitted word.
+  - Example: user submits "retrieval" (English) and the target is Japanese → sense 1 headword = "検索" (IT context), sense 2 headword = "回収" (recovering a lost item).
+  - `examples[].source` is a natural {target_name} sentence that contains THAT sense's headword.
+  - `examples[].translation` is a natural {explanation_name} sentence that MUST contain the user's submitted form (or its inflection / part-of-speech variant). This lets the learner see their own word appearing in the translation.
 
-If the word has only ONE main meaning, return ONE sense. Do NOT pad with niche meanings.
+How to decide the mode:
+- If the submitted word's primary language is {target_name}, use MODE A.
+- If it's {explanation_name}, use MODE B.
+- For words that exist in both languages (loanwords, proper nouns, etc.), prefer MODE A.
+
+Rules common to both modes:
+- Provide 1-3 senses. If the word has only ONE main meaning, return ONE sense. Do NOT pad with niche or rare meanings just to fill the array.
+- Provide exactly 2 examples per sense.
+{headword_reading_rule}
+- `meaning` and `usage` are written in {explanation_name} for an early-stage learner (simple wording, no jargon).
 
 Return a JSON object with this exact structure:
 
 {{
   "input": "the exact word/phrase the user submitted (echo back verbatim)",
+  "mode": "A" or "B",
   "senses": [
     {{
-      "headword": "the {target_name} headword for this sense (always in {target_name})",{headword_reading_field}
+      "headword": "see mode rules above (always in {target_name})",{headword_reading_field}
       "part_of_speech": "noun / verb / adjective / etc.",
-      "meaning": "brief meaning in {explanation_name}, written for an early-stage learner (simple wording, no jargon)",
+      "meaning": "brief meaning in {explanation_name}",
       "usage": "1-2 short notes about usage or collocations in {explanation_name}",
       "examples": [
-        {{"source": "natural {target_name} sentence containing the sense's headword", "translation": "translation in {explanation_name} containing the user's submitted word (or its inflection)"}}
+        {{"source": "natural {target_name} sentence", "translation": "natural {explanation_name} translation (see mode rules)"}}
       ]
     }}
   ]
 }}
-
-Rules:
-- Provide exactly 2 examples per sense.
-- Each example's `source` MUST contain the SAME sense's headword (or its inflection / part-of-speech variant).
-- Each example's `translation` MUST contain the user's submitted form OR its inflection / part-of-speech variant. For example, if the user submitted "retrieval", every example translation must contain one of: retrieval, retrieve, retrieved, retrieves, retrieving.
-- The two examples in a sense should use the SAME sense's headword consistently (do not switch headwords mid-sense).
-{headword_reading_rule}
-- `meaning` and `usage` are in {explanation_name}.
 
 Respond ONLY with the JSON object, no extra text, no markdown fences."""
 
