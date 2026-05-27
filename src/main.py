@@ -56,15 +56,17 @@ def _format_sense_heading(sense: dict, index: int, multi: bool) -> str:
 
 
 def _format_sense_body(sense: dict, is_ja: bool) -> str:
-    meaning_label = "意味" if is_ja else "Meaning"
-    usage_label = "使い方" if is_ja else "Usage"
-    lines = [
-        f"**{meaning_label}**: {sense['meaning']}",
-        f"**{usage_label}**: {sense['usage']}",
-    ]
+    translation_label = "訳" if is_ja else "Translation"
+
+    lines = []
+    translations = sense.get("translations", [])
+    if translations:
+        lines.append(f"**{translation_label}**: {' / '.join(translations)}")
+
     examples = sense.get("examples", [])
     if examples:
-        lines.append("")
+        if lines:
+            lines.append("")
         for j, e in enumerate(examples, start=1):
             lines.append(f"{j}. {e['source']}")
             lines.append(f"    → {e['translation']}")
@@ -92,8 +94,13 @@ def _build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> 
 
 
 def _summarize_headwords(senses: list[dict]) -> str:
-    """query_log.result_summary 用: 全 sense の headword を ' / ' 区切りで連結。"""
-    return " / ".join(sense["headword"] for sense in senses)
+    """query_log.result_summary 用: 全 sense の headword を ' / ' 区切りで連結(重複排除)。"""
+    seen: list[str] = []
+    for sense in senses:
+        h = sense["headword"]
+        if h not in seen:
+            seen.append(h)
+    return " / ".join(seen)
 
 
 def _build_sentence_embed(result: dict, target_lang: str, explanation_lang: str) -> discord.Embed:

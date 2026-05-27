@@ -8,13 +8,13 @@ from llm import gemini_client
 
 MOCK_SINGLE_SENSE_EN_TARGET = json.dumps({
     "input": "apple",
+    "mode": "A",
     "senses": [
         {
             "headword": "apple",
             "headword_reading": "",
             "part_of_speech": "noun",
-            "meaning": "赤や緑の皮を持つ果物",
-            "usage": "日常語",
+            "translations": ["リンゴ"],
             "examples": [
                 {"source": "I ate an apple.", "translation": "りんごを食べた。"},
                 {"source": "She likes apples.", "translation": "彼女はりんごが好きです。"},
@@ -24,15 +24,43 @@ MOCK_SINGLE_SENSE_EN_TARGET = json.dumps({
 })
 
 
+MOCK_MULTI_SENSE_EN_DIRECT_LOOKUP = json.dumps({
+    "input": "bank",
+    "mode": "A",
+    "senses": [
+        {
+            "headword": "bank",
+            "headword_reading": "",
+            "part_of_speech": "noun",
+            "translations": ["銀行"],
+            "examples": [
+                {"source": "I went to the bank to withdraw cash.", "translation": "現金を引き出すために銀行へ行った。"},
+                {"source": "The bank closes at 3 PM.", "translation": "銀行は午後3時に閉まる。"},
+            ],
+        },
+        {
+            "headword": "bank",
+            "headword_reading": "",
+            "part_of_speech": "noun",
+            "translations": ["土手", "川岸"],
+            "examples": [
+                {"source": "We had a picnic on the bank of the river.", "translation": "川の土手でピクニックをした。"},
+                {"source": "Trees grew along the bank.", "translation": "土手沿いに木々が生えていた。"},
+            ],
+        },
+    ],
+})
+
+
 MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP = json.dumps({
     "input": "retrieval",
+    "mode": "B",
     "senses": [
         {
             "headword": "検索",
             "headword_reading": "けんさく",
             "part_of_speech": "noun / suru-verb",
-            "meaning": "Retrieving information from a database or server.",
-            "usage": "Common in technical contexts.",
+            "translations": ["search", "retrieval", "lookup"],
             "examples": [
                 {"source": "データベースからレコードを検索する。", "translation": "I retrieve records from the database."},
                 {"source": "素早く情報を検索する。", "translation": "Search information quickly with retrieval."},
@@ -42,8 +70,7 @@ MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP = json.dumps({
             "headword": "回収",
             "headword_reading": "かいしゅう",
             "part_of_speech": "noun / suru-verb",
-            "meaning": "Bringing back a lost item.",
-            "usage": "Used for physical objects.",
+            "translations": ["recovery", "collection"],
             "examples": [
                 {"source": "犬がボールを回収する。", "translation": "The dog retrieves the ball."},
                 {"source": "失くした財布を回収した。", "translation": "I retrieved the lost wallet."},
@@ -55,16 +82,16 @@ MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP = json.dumps({
 
 MOCK_JA_DIRECT_LOOKUP = json.dumps({
     "input": "視察",
+    "mode": "A",
     "senses": [
         {
             "headword": "視察",
             "headword_reading": "しさつ",
             "part_of_speech": "noun / suru-verb",
-            "meaning": "Visiting a location to observe and inspect.",
-            "usage": "Used in official or formal contexts.",
+            "translations": ["inspection", "observation visit"],
             "examples": [
-                {"source": "現場を視察する。", "translation": "I inspect (視察) the site."},
-                {"source": "工場を視察した。", "translation": "I visited (視察) the factory."},
+                {"source": "現場を視察する。", "translation": "I inspect the site."},
+                {"source": "工場を視察した。", "translation": "I visited the factory for inspection."},
             ],
         }
     ],
@@ -82,10 +109,6 @@ class TestBuildSystemPrompt:
         assert "Japanese dictionary" in prompt
         assert "English speakers" in prompt
 
-    def test_mentions_reverse_lookup_behavior(self):
-        prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
-        assert "equivalent" in prompt.lower()
-
     def test_japanese_target_requires_reading_for_kanji(self):
         prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
         assert "hiragana" in prompt.lower()
@@ -94,13 +117,29 @@ class TestBuildSystemPrompt:
         prompt = word_handler._build_system_prompt(target_lang="en", explanation_lang="ja")
         assert "MUST be empty strings" in prompt
 
-    def test_mentions_per_sense_headword_in_examples(self):
-        prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
-        assert "sense's headword" in prompt
+    def test_describes_mode_a_direct_lookup(self):
+        prompt = word_handler._build_system_prompt(target_lang="en", explanation_lang="ja")
+        assert "MODE A" in prompt
+        assert "DIRECT LOOKUP" in prompt
+        # 順引き時は全 sense 同 headword + 意味で分割の指示が含まれる
+        assert "SAME `headword`" in prompt
 
-    def test_mentions_user_input_in_example_translation(self):
+    def test_describes_mode_b_reverse_lookup(self):
         prompt = word_handler._build_system_prompt(target_lang="ja", explanation_lang="en")
-        assert "inflection" in prompt.lower()
+        assert "MODE B" in prompt
+        assert "REVERSE LOOKUP" in prompt
+        # 逆引き時のみ translation に user input を含める指示が含まれる
+        assert "MUST contain the user's submitted" in prompt
+
+    def test_mode_a_warns_against_injecting_target_word_into_translation(self):
+        prompt = word_handler._build_system_prompt(target_lang="en", explanation_lang="ja")
+        # MODE A では translation に target_lang の語を入れないこと
+        assert "Do NOT inject" in prompt
+
+    def test_requires_translations_array_per_sense(self):
+        prompt = word_handler._build_system_prompt(target_lang="en", explanation_lang="ja")
+        # 各 sense に translations 配列を要求する指示
+        assert '"translations"' in prompt
 
 
 class TestStripCodeFences:
@@ -153,6 +192,60 @@ class TestHandleWord:
         assert sense["part_of_speech"] == "noun"
         assert len(sense["examples"]) == 2
         assert result["dictionary_url"] == "https://example.com/apple"
+
+    async def test_sense_includes_translations_list(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return MOCK_SINGLE_SENSE_EN_TARGET
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+
+        result = await word_handler.handle_word(
+            word="apple",
+            target_lang="en",
+            explanation_lang="ja",
+            dictionary_url_template="https://example.com/{word}",
+        )
+
+        assert result["senses"][0]["translations"] == ["リンゴ"]
+
+    async def test_direct_lookup_multi_sense_has_distinct_translations(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return MOCK_MULTI_SENSE_EN_DIRECT_LOOKUP
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+
+        result = await word_handler.handle_word(
+            word="bank",
+            target_lang="en",
+            explanation_lang="ja",
+            dictionary_url_template="https://example.com/{word}",
+        )
+
+        # 同じ headword だが、 sense ごとに異なる translations
+        assert result["senses"][0]["translations"] == ["銀行"]
+        assert result["senses"][1]["translations"] == ["土手", "川岸"]
+
+    async def test_direct_lookup_multi_sense_keeps_same_headword(self, monkeypatch):
+        async def fake_generate(system_prompt, user_prompt):
+            return MOCK_MULTI_SENSE_EN_DIRECT_LOOKUP
+
+        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+
+        result = await word_handler.handle_word(
+            word="bank",
+            target_lang="en",
+            explanation_lang="ja",
+            dictionary_url_template="https://example.com/{word}",
+        )
+
+        assert result["input"] == "bank"
+        assert len(result["senses"]) == 2
+        # MODE A では全 sense が同じ headword(= user input)
+        assert result["senses"][0]["headword"] == "bank"
+        assert result["senses"][1]["headword"] == "bank"
+        # sense ごとに異なる translations(意味の違いはここに表れる)
+        assert "銀行" in result["senses"][0]["translations"]
+        assert "土手" in result["senses"][1]["translations"]
 
     async def test_reverse_lookup_returns_multiple_senses_with_target_lang_headwords(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):
@@ -245,8 +338,7 @@ class TestHandleWord:
                     "headword": "apple",
                     "headword_reading": "",
                     "part_of_speech": "noun",
-                    "meaning": "...",
-                    "usage": "...",
+                    "translations": ["リンゴ"],
                     "examples": [],
                 }],
             })
