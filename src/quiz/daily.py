@@ -74,16 +74,43 @@ async def post_addon_quizzes(
     count: int,
     db_path: Path | None = None,
 ) -> None:
-    """ユーザー要求に応じて追加の新出クイズを count 問投稿する。"""
+    """ユーザー要求に応じて追加の新出クイズを count 問投稿する。
+
+    除外リストは 1 度だけ取得し、互いに異なる count 問をバッチ生成してから投稿する
+    (1 問ずつ生成するより API コールを大幅に削減する)。
+    """
     if db_path is None:
         db_path = quiz_log.DEFAULT_DB_PATH
-    for i in range(count):
+
+    user_id = learner["discord_user_id"]
+    target_lang = learner["target_lang"]
+    explanation_lang = _explanation_lang_for(target_lang)
+
+    recent = quiz_log.get_recent_query_history(user_id, target_lang, limit=30, db_path=db_path)
+    all_past_quiz = quiz_log.get_all_quiz_source_texts(user_id, target_lang, db_path=db_path)
+    all_words = quiz_log.get_user_word_history(user_id, target_lang, db_path=db_path)
+    exclusion = list(set(all_past_quiz + all_words))
+
+    quizzes = await quiz_handler.generate_new_quiz_batch(
+        count=count,
+        history=recent,
+        exclusion_list=exclusion,
+        target_lang=target_lang,
+        explanation_lang=explanation_lang,
+    )
+
+    total = len(quizzes)
+    for i, quiz_content in enumerate(quizzes):
         try:
-            await _post_one(channel, learner, mode="new", review_source=None,
-                            db_path=db_path, position=(i + 1, count), addon=True)
+            await _send_quiz(
+                channel, learner, mode="new",
+                source_text=quiz_content["source_text"],
+                quiz_content=quiz_content,
+                db_path=db_path, position=(i + 1, total), addon=True,
+            )
         except Exception:
             logger.exception("Failed to post addon quiz %d/%d for %s",
-                             i + 1, count, learner.get("name"))
+                             i + 1, total, learner.get("name"))
 
 
 async def _post_one(
@@ -120,6 +147,25 @@ async def _post_one(
             explanation_lang=explanation_lang,
         )
         source_text = quiz_content["source_text"]
+
+    await _send_quiz(channel, learner, mode, source_text, quiz_content,
+                     db_path=db_path, position=position, addon=addon)
+
+
+async def _send_quiz(
+    channel: discord.abc.Messageable,
+    learner: dict,
+    mode: str,
+    source_text: str,
+    quiz_content: dict,
+    db_path: Path,
+    position: tuple[int, int],
+    addon: bool = False,
+) -> None:
+    """生成済みの quiz_content を DB 保存 → embed/ボタン付きで投稿する共通処理。"""
+    user_id = learner["discord_user_id"]
+    target_lang = learner["target_lang"]
+    explanation_lang = _explanation_lang_for(target_lang)
 
     quiz_id = quiz_log.insert_quiz(
         discord_user_id=user_id,

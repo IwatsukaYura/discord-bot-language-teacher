@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from db import quiz_log
+from db import query_log, quiz_log
+from handlers import quiz_handler
 from quiz import daily as quiz_daily
 from quiz import poster
 
@@ -54,6 +55,37 @@ class FakeInteraction:
         self.channel = channel
 
 
+class FakeMessage:
+    def __init__(self, message_id):
+        self.id = message_id
+
+
+class FakeChannel:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, content=None, embed=None, view=None):
+        self.sent.append({"content": content, "embed": embed, "view": view})
+        return FakeMessage(len(self.sent))
+
+
+def _batch_returning(n_items):
+    async def fake_batch(count, history, exclusion_list, target_lang, explanation_lang):
+        fake_batch.captured = {"count": count, "exclusion_list": exclusion_list}
+        return [
+            {
+                "source_text": f"w{i}",
+                "question_text": "?",
+                "choices": ["a", "b", "c", "d"],
+                "correct_index": 0,
+                "explanation": "e",
+            }
+            for i in range(n_items)
+        ]
+
+    return fake_batch
+
+
 def _insert_quiz_raw(db_path, user_id, target_lang, answered):
     now = datetime.now(JST).isoformat()
     with sqlite3.connect(db_path) as conn:
@@ -69,6 +101,7 @@ def _insert_quiz_raw(db_path, user_id, target_lang, answered):
 @pytest.fixture
 def db_path(tmp_path):
     p = tmp_path / "test.db"
+    query_log.init_db(p)
     quiz_log.init_db(p)
     return p
 
@@ -132,6 +165,34 @@ class TestHandleAddonRequest:
         )
 
         assert posted == []
+
+
+class TestPostAddonQuizzes:
+    async def test_posts_each_generated_quiz(self, db_path, monkeypatch):
+        fake_batch = _batch_returning(3)
+        monkeypatch.setattr(quiz_handler, "generate_new_quiz_batch", fake_batch)
+        channel = FakeChannel()
+        learner = {"discord_user_id": "111", "name": "t", "target_lang": "en"}
+
+        await quiz_daily.post_addon_quizzes(channel, learner, count=3, db_path=db_path)
+
+        assert len(channel.sent) == 3
+        with sqlite3.connect(db_path) as conn:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM quiz_log WHERE discord_user_id='111'"
+            ).fetchone()[0]
+        assert n == 3
+        assert fake_batch.captured["count"] == 3
+
+    async def test_posts_only_what_batch_returns(self, db_path, monkeypatch):
+        fake_batch = _batch_returning(1)
+        monkeypatch.setattr(quiz_handler, "generate_new_quiz_batch", fake_batch)
+        channel = FakeChannel()
+        learner = {"discord_user_id": "111", "name": "t", "target_lang": "en"}
+
+        await quiz_daily.post_addon_quizzes(channel, learner, count=3, db_path=db_path)
+
+        assert len(channel.sent) == 1
 
 
 class TestMaybeOfferAddon:
