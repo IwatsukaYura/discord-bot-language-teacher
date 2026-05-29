@@ -3,7 +3,7 @@ import json
 import pytest
 
 from handlers import sentence_handler
-from llm import gemini_client
+from llm import client as llm_client
 
 
 MOCK_VALID_RESPONSE = json.dumps({
@@ -50,7 +50,7 @@ class TestHandleSentence:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_VALID_RESPONSE
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await sentence_handler.handle_sentence(
             text="Could you pick me up at the station?",
             target_lang="en",
@@ -67,7 +67,7 @@ class TestHandleSentence:
         async def fake_generate(system_prompt, user_prompt):
             return f"```json\n{MOCK_VALID_RESPONSE}\n```"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await sentence_handler.handle_sentence(
             text="anything",
             target_lang="en",
@@ -79,7 +79,7 @@ class TestHandleSentence:
         async def fake_generate(system_prompt, user_prompt):
             return "this is not json"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         with pytest.raises(ValueError, match="Invalid JSON from Gemini"):
             await sentence_handler.handle_sentence(
                 text="anything",
@@ -95,7 +95,7 @@ class TestHandleSentence:
                 "key_points": [],
             })
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await sentence_handler.handle_sentence(
             text="anything",
             target_lang="en",
@@ -110,7 +110,7 @@ class TestHandleSentence:
                 "translation": "test",
             })
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await sentence_handler.handle_sentence(
             text="anything",
             target_lang="en",
@@ -128,7 +128,7 @@ class TestHandleSentence:
                 "key_points": [],
             })
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await sentence_handler.handle_sentence(
             text="Could you pick me up at the station?",
             target_lang="ja",
@@ -142,7 +142,7 @@ class TestHandleSentence:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_VALID_RESPONSE
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await sentence_handler.handle_sentence(
             text="anything",
             target_lang="en",

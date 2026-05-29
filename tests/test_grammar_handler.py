@@ -3,7 +3,7 @@ import json
 import pytest
 
 from handlers import grammar_handler
-from llm import gemini_client
+from llm import client as llm_client
 
 
 MOCK_JA_GRAMMAR_RESPONSE = json.dumps({
@@ -39,7 +39,7 @@ class TestHandleGrammar:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_JA_GRAMMAR_RESPONSE
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await grammar_handler.handle_grammar(
             "What does 〜てしまう mean?", target_lang="ja", explanation_lang="en",
         )
@@ -56,7 +56,7 @@ class TestHandleGrammar:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_EN_GRAMMAR_RESPONSE
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await grammar_handler.handle_grammar(
             "would have p.p.の使い方", target_lang="en", explanation_lang="ja",
         )
@@ -72,7 +72,7 @@ class TestHandleGrammar:
         async def fake_generate(system_prompt, user_prompt):
             return f"```json\n{MOCK_JA_GRAMMAR_RESPONSE}\n```"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await grammar_handler.handle_grammar(
             "anything", target_lang="ja", explanation_lang="en",
         )
@@ -82,7 +82,7 @@ class TestHandleGrammar:
         async def fake_generate(system_prompt, user_prompt):
             return "this is not json"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         with pytest.raises(ValueError, match="Invalid JSON from Gemini"):
             await grammar_handler.handle_grammar(
                 "anything", target_lang="en", explanation_lang="ja",
@@ -96,7 +96,7 @@ class TestHandleGrammar:
                 "examples": [],
             })
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await grammar_handler.handle_grammar(
             "anything", target_lang="en", explanation_lang="ja",
         )
@@ -109,7 +109,7 @@ class TestHandleGrammar:
                 "explanation": "...",
             })
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await grammar_handler.handle_grammar(
             "anything", target_lang="en", explanation_lang="ja",
         )
@@ -123,7 +123,7 @@ class TestHandleGrammar:
                 "examples": [],
             })
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await grammar_handler.handle_grammar(
             "anything", target_lang="ja", explanation_lang="en",
         )

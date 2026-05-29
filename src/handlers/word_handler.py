@@ -3,7 +3,7 @@ import logging
 import re
 from urllib.parse import quote
 
-from llm import gemini_client
+from llm import client as llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ async def handle_word(
     dictionary_url_template: str,
 ) -> dict:
     system_prompt = _build_system_prompt(target_lang, explanation_lang)
-    raw_response = await gemini_client.generate(system_prompt, word)
+    raw_response = await llm_client.generate(system_prompt, word)
     cleaned = _strip_code_fences(raw_response)
 
     try:

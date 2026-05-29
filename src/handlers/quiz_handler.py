@@ -2,7 +2,7 @@ import json
 import logging
 import re
 
-from llm import gemini_client
+from llm import client as llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +209,7 @@ async def generate_review_quiz(
 ) -> dict:
     """過去に学習した語の 4 択復習クイズを生成。source_text は呼び出し側が指定。"""
     system_prompt = _build_review_prompt(target_lang, explanation_lang)
-    raw_response = await gemini_client.generate(system_prompt, source_word)
+    raw_response = await llm_client.generate(system_prompt, source_word)
     parsed = _parse_quiz_json(raw_response)
     _validate_quiz(parsed, require_source_text=False)
     return {
@@ -239,7 +239,7 @@ async def generate_new_quiz(
         system_prompt = _build_new_prompt(
             target_lang, explanation_lang, history, current_exclusion,
         )
-        raw_response = await gemini_client.generate(
+        raw_response = await llm_client.generate(
             system_prompt, "Pick a new word and create a quiz.",
         )
         parsed = _parse_quiz_json(raw_response)
@@ -292,7 +292,7 @@ async def generate_new_quiz_batch(
         system_prompt = _build_new_batch_prompt(
             target_lang, explanation_lang, history, current_exclusion, missing,
         )
-        raw_response = await gemini_client.generate(
+        raw_response = await llm_client.generate(
             system_prompt, f"Pick {missing} new words and create quizzes.",
         )
 

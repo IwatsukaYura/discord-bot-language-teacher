@@ -1,7 +1,7 @@
 import logging
 import string
 
-from llm import gemini_client
+from llm import client as llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ Respond with ONLY one word: word, sentence, or grammar. No explanation, no punct
 
 
 async def classify_input(text: str) -> str:
-    response = await gemini_client.generate(_SYSTEM_PROMPT, text)
+    response = await llm_client.generate(_SYSTEM_PROMPT, text)
     normalized = response.strip().lower().strip(string.punctuation)
 
     if normalized not in VALID_TYPES:

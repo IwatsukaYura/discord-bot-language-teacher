@@ -1,7 +1,7 @@
 import pytest
 
 from handlers import router
-from llm import gemini_client
+from llm import client as llm_client
 
 
 class TestClassifyInput:
@@ -9,7 +9,7 @@ class TestClassifyInput:
         async def fake_generate(system_prompt, user_prompt):
             return "word"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await router.classify_input("apple")
         assert result == "word"
 
@@ -17,7 +17,7 @@ class TestClassifyInput:
         async def fake_generate(system_prompt, user_prompt):
             return "sentence"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await router.classify_input("Could you pick me up?")
         assert result == "sentence"
 
@@ -25,7 +25,7 @@ class TestClassifyInput:
         async def fake_generate(system_prompt, user_prompt):
             return "grammar"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await router.classify_input("What does 〜てしまう mean?")
         assert result == "grammar"
 
@@ -33,7 +33,7 @@ class TestClassifyInput:
         async def fake_generate(system_prompt, user_prompt):
             return "  WORD  \n"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await router.classify_input("apple")
         assert result == "word"
 
@@ -41,7 +41,7 @@ class TestClassifyInput:
         async def fake_generate(system_prompt, user_prompt):
             return "sentence."
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await router.classify_input("Could you pick me up?")
         assert result == "sentence"
 
@@ -49,7 +49,7 @@ class TestClassifyInput:
         async def fake_generate(system_prompt, user_prompt):
             return '"grammar"'
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await router.classify_input("What does X mean?")
         assert result == "grammar"
 
@@ -57,7 +57,7 @@ class TestClassifyInput:
         async def fake_generate(system_prompt, user_prompt):
             return "This is a very long unexpected response"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await router.classify_input("apple")
         assert result == "word"
 
@@ -65,6 +65,6 @@ class TestClassifyInput:
         async def fake_generate(system_prompt, user_prompt):
             return ""
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
         result = await router.classify_input("apple")
         assert result == "word"

@@ -39,7 +39,7 @@ class FakeGenerate:
 class TestGenerateNewQuizDedup:
     async def test_returns_first_when_not_a_duplicate(self, monkeypatch):
         fake = FakeGenerate([_resp("鉛筆")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz(
             history=[], exclusion_list=["付箋"], target_lang="ja", explanation_lang="en",
@@ -50,7 +50,7 @@ class TestGenerateNewQuizDedup:
 
     async def test_retries_until_non_duplicate(self, monkeypatch):
         fake = FakeGenerate([_resp("付箋"), _resp("鉛筆")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz(
             history=[], exclusion_list=["付箋"], target_lang="ja", explanation_lang="en",
@@ -63,7 +63,7 @@ class TestGenerateNewQuizDedup:
         # "apple" is excluded; model returns the surface variant "Apple" (a normalized
         # duplicate). The retry prompt must explicitly forbid that exact rejected form.
         fake = FakeGenerate([_resp("Apple"), _resp("banana")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         await quiz_handler.generate_new_quiz(
             history=[], exclusion_list=["apple"], target_lang="en", explanation_lang="ja",
@@ -74,7 +74,7 @@ class TestGenerateNewQuizDedup:
 
     async def test_dedup_is_case_insensitive(self, monkeypatch):
         fake = FakeGenerate([_resp("Apple"), _resp("banana")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz(
             history=[], exclusion_list=["apple"], target_lang="en", explanation_lang="ja",
@@ -85,7 +85,7 @@ class TestGenerateNewQuizDedup:
 
     async def test_raises_after_max_attempts_all_duplicate(self, monkeypatch):
         fake = FakeGenerate([_resp("付箋")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         with pytest.raises(ValueError):
             await quiz_handler.generate_new_quiz(
@@ -98,7 +98,7 @@ class TestGenerateNewQuizDedup:
 class TestGenerateNewQuizBatch:
     async def test_returns_all_in_one_call_when_distinct(self, monkeypatch):
         fake = FakeGenerate([_arr("a", "b", "c")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz_batch(
             count=3, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
@@ -111,7 +111,7 @@ class TestGenerateNewQuizBatch:
         # model repeats "a" inside the array; only distinct ones count, so it
         # needs a follow-up call to reach count.
         fake = FakeGenerate([_arr("a", "a", "b"), _arr("c")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz_batch(
             count=3, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
@@ -122,7 +122,7 @@ class TestGenerateNewQuizBatch:
 
     async def test_excludes_listed_words(self, monkeypatch):
         fake = FakeGenerate([_arr("a", "b"), _arr("c")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz_batch(
             count=2, history=[], exclusion_list=["a"], target_lang="en", explanation_lang="ja",
@@ -133,7 +133,7 @@ class TestGenerateNewQuizBatch:
 
     async def test_caps_calls_and_returns_best_effort_when_short(self, monkeypatch):
         fake = FakeGenerate([_arr("a"), _arr("a")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz_batch(
             count=3, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
@@ -144,7 +144,7 @@ class TestGenerateNewQuizBatch:
 
     async def test_never_returns_more_than_count(self, monkeypatch):
         fake = FakeGenerate([_arr("a", "b", "c", "d", "e")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz_batch(
             count=2, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
@@ -155,7 +155,7 @@ class TestGenerateNewQuizBatch:
 
     async def test_tolerates_single_object_response(self, monkeypatch):
         fake = FakeGenerate([_resp("a")])
-        monkeypatch.setattr(quiz_handler.gemini_client, "generate", fake)
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz_batch(
             count=1, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",

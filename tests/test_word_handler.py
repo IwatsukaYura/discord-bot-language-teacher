@@ -3,7 +3,7 @@ import json
 import pytest
 
 from handlers import word_handler
-from llm import gemini_client
+from llm import client as llm_client
 
 
 MOCK_SINGLE_SENSE_EN_TARGET = json.dumps({
@@ -175,7 +175,7 @@ class TestHandleWord:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_SINGLE_SENSE_EN_TARGET
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         result = await word_handler.handle_word(
             word="apple",
@@ -197,7 +197,7 @@ class TestHandleWord:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_SINGLE_SENSE_EN_TARGET
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         result = await word_handler.handle_word(
             word="apple",
@@ -212,7 +212,7 @@ class TestHandleWord:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_MULTI_SENSE_EN_DIRECT_LOOKUP
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         result = await word_handler.handle_word(
             word="bank",
@@ -229,7 +229,7 @@ class TestHandleWord:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_MULTI_SENSE_EN_DIRECT_LOOKUP
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         result = await word_handler.handle_word(
             word="bank",
@@ -251,7 +251,7 @@ class TestHandleWord:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         result = await word_handler.handle_word(
             word="retrieval",
@@ -273,7 +273,7 @@ class TestHandleWord:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_JA_DIRECT_LOOKUP
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         result = await word_handler.handle_word(
             word="視察",
@@ -290,7 +290,7 @@ class TestHandleWord:
         async def fake_generate(system_prompt, user_prompt):
             return MOCK_MULTI_SENSE_JA_REVERSE_LOOKUP
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         result = await word_handler.handle_word(
             word="retrieval",
@@ -306,7 +306,7 @@ class TestHandleWord:
         async def fake_generate(system_prompt, user_prompt):
             return f"```json\n{MOCK_SINGLE_SENSE_EN_TARGET}\n```"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         result = await word_handler.handle_word(
             word="apple",
@@ -321,7 +321,7 @@ class TestHandleWord:
         async def fake_generate(system_prompt, user_prompt):
             return "this is not json"
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         with pytest.raises(ValueError, match="Invalid JSON from Gemini"):
             await word_handler.handle_word(
@@ -343,7 +343,7 @@ class TestHandleWord:
                 }],
             })
 
-        monkeypatch.setattr(gemini_client, "generate", fake_generate)
+        monkeypatch.setattr(llm_client, "generate", fake_generate)
 
         result = await word_handler.handle_word(
             word="apple",
