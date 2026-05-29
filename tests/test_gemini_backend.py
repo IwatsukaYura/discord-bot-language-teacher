@@ -42,8 +42,8 @@ class TestGeminiBackend:
         assert out == "hello"
         assert models.last_model == "gemini-3.1-flash-lite"
 
-    @pytest.mark.parametrize("code", [429, 500, 502, 503])
-    async def test_maps_rate_and_overload_codes(self, monkeypatch, code):
+    @pytest.mark.parametrize("code", [404, 429, 500, 502, 503])
+    async def test_maps_fallback_codes(self, monkeypatch, code):
         models = FakeModels(exc=genai_errors.APIError(code, {}))
         monkeypatch.setattr(gemini_backend, "_get_client", lambda: FakeClient(models))
 
