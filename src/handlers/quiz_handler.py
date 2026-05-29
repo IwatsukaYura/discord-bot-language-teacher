@@ -72,14 +72,15 @@ The learner studied a {target_name} word in the past and the word will be provid
 Return a JSON object with this exact structure:
 
 {{
-  "question_text": "the question prompt in {explanation_name} (e.g. \\"次の意味として正しいのはどれ?\\" or \\"Which is the correct meaning?\\")",
+  "question_text": "a question in {explanation_name} that QUOTES the source word by name and asks for its meaning. Substitute <WORD> with the actual source word. Template: \\"「<WORD>」の意味として最も適切なものはどれですか？\\" (when {explanation_name} is Japanese) or \\"What does <WORD> mean?\\" (when English)",
   "choices": ["choice 1", "choice 2", "choice 3", "choice 4"],
   "correct_index": <int 0-3 indicating which choice is correct>,
   "explanation": "brief explanation in {explanation_name} (under 200 chars)"
 }}
 
 Rules:
-- All 4 choices must be plausible meanings in {explanation_name}.
+- The question_text MUST quote the source word by name and ask for its meaning. NEVER phrase it as "which word means X" or any reverse direction; the source word is shown in the embed description, so the reverse direction would reveal the answer.
+- All 4 choices are meanings in {explanation_name}. NEVER include a {target_name} word as a choice.
 - Distractors should be confusable (similar category, similar level) but clearly wrong.
 - Keep each choice short (under 30 characters where possible, hard max 80 for Discord button label).
 - Randomize the correct answer's position (do not always put it at index 0).
@@ -126,7 +127,7 @@ Return a JSON object with this exact structure:
 
 {{
   "source_text": "the new {target_name} word you picked",
-  "question_text": "the question prompt in {explanation_name}",
+  "question_text": "a question in {explanation_name} that QUOTES source_text by name and asks for its meaning. Substitute <WORD> with source_text. Template: \\"「<WORD>」の意味として最も適切なものはどれですか？\\" (when {explanation_name} is Japanese) or \\"What does <WORD> mean?\\" (when English)",
   "choices": ["choice 1", "choice 2", "choice 3", "choice 4"],
   "correct_index": <int 0-3 indicating which choice is correct>,
   "explanation": "brief explanation in {explanation_name} (under 200 chars)"
@@ -134,7 +135,8 @@ Return a JSON object with this exact structure:
 
 Rules:
 - The chosen source_text MUST be different from every forbidden word listed above.
-- All 4 choices must be plausible meanings in {explanation_name}.
+- The question_text MUST quote source_text by name and ask for its meaning. NEVER phrase it as "which word means X" or any reverse direction; source_text is shown in the embed description, so the reverse direction would reveal the answer.
+- All 4 choices are meanings in {explanation_name}. NEVER include a {target_name} word as a choice.
 - Distractors should be confusable but clearly wrong.
 - Keep each choice short (under 30 characters where possible, hard max 80).
 - Randomize the correct answer's position.
@@ -183,7 +185,7 @@ Return a JSON array of exactly {count} objects, each with this exact structure:
 [
   {{
     "source_text": "the new {target_name} word you picked",
-    "question_text": "the question prompt in {explanation_name}",
+    "question_text": "a question in {explanation_name} that QUOTES source_text by name and asks for its meaning. Substitute <WORD> with source_text. Template: \\"「<WORD>」の意味として最も適切なものはどれですか？\\" (when {explanation_name} is Japanese) or \\"What does <WORD> mean?\\" (when English)",
     "choices": ["choice 1", "choice 2", "choice 3", "choice 4"],
     "correct_index": <int 0-3 indicating which choice is correct>,
     "explanation": "brief explanation in {explanation_name} (under 200 chars)"
@@ -193,7 +195,8 @@ Return a JSON array of exactly {count} objects, each with this exact structure:
 Rules:
 - The {count} source_text values MUST all be different from each other.
 - Every source_text MUST be different from every forbidden word listed above.
-- All 4 choices must be plausible meanings in {explanation_name}.
+- Each question_text MUST quote its source_text by name and ask for its meaning. NEVER phrase it as "which word means X" or any reverse direction; source_text is shown in the embed description, so the reverse direction would reveal the answer.
+- All 4 choices in each quiz are meanings in {explanation_name}. NEVER include a {target_name} word as a choice.
 - Distractors should be confusable but clearly wrong.
 - Keep each choice short (under 30 characters where possible, hard max 80).
 - Randomize the correct answer's position in each quiz.
