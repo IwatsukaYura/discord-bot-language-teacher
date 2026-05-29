@@ -1,103 +1,60 @@
 # AWS インフラ — システム構成と設計判断
 
-| 項目           | 内容                                                                        |
-| -------------- | --------------------------------------------------------------------------- |
-| 作成日         | 2026-05-26                                                                  |
-| 最終更新       | 2026-05-27(dev/prod 並存構成を反映)                                         |
-| 範囲           | 過去に手動構築された AWS リソースの**設計意図**と**判断根拠**を後追いで記録 |
-| 対象アカウント | `805865757574` / `ap-northeast-1`                                           |
-| IaC            | 未導入(全リソース手動構築)                                                  |
+| 項目     | 内容                                                                        |
+| -------- | --------------------------------------------------------------------------- |
+| 作成日   | 2026-05-26                                                                  |
+| 最終更新 | 2026-05-27(dev/prod 並存構成を反映)                                         |
+| 範囲     | 過去に手動構築された AWS リソースの**設計意図**と**判断根拠**を後追いで記録 |
+| IaC      | 未導入(全リソース手動構築)                                                  |
 
 > 各リソースの ID・ARN・ポリシー本文等のリファレンス情報はこのドキュメントには載せない(必要なら AWS Console / CLI で参照する)。本ドキュメントは「なぜこの構成にしたか」を残すことを目的とする。
 
 ---
 
-## 1. システム構成(dev/prod 並存)
+## 1. システム構成
+
+> 図は prod を示す。dev も同一 EC2 上に同じ構成で並存する(詳細は 2.9)。
 
 ```mermaid
 flowchart TB
-  subgraph GH[GitHub]
-    Repo["repo: IwatsukaYura/discord-bot-language-teacher<br/>branches: main / develop"]
-    Actions[".github/workflows/deploy.yml<br/>main → prod / develop → dev<br/>workflow_dispatch で手動選択も可"]
-    Repo --> Actions
-  end
+  Repo["GitHub リポジトリ (main)"]
+  Actions["GitHub Actions (deploy.yml)"]
+  Repo -->|push| Actions
 
-  subgraph AWS["AWS — ap-northeast-1 / account 805865757574"]
-    OIDC["OIDC Provider<br/>token.actions.githubusercontent.com<br/>(別プロジェクトの Terraform 産を流用)"]
-    DeployRole["IAM Role: GitHubActionsDeployRole<br/>ssm:SendCommand on EC2 のみ"]
+  subgraph AWS["AWS (ap-northeast-1)"]
+    SSM["SSM Parameter Store<br/>/language-teacher/prod/*<br/>(シークレット)"]
 
-    subgraph SSMStore["SSM Parameter Store"]
-      ProdParams["/language-teacher/prod/*"]
-      DevParams["/language-teacher/dev/*"]
-    end
+    subgraph EC2["EC2 (t3.micro)"]
+      Deploy["deploy.sh<br/>git reset --hard → .env 生成 → compose up"]
 
-    subgraph EC2VPC["Default VPC (172.31.0.0/16) / public subnet"]
-      SG["SG: language-teacher-bot-sg<br/>Ingress 全閉鎖 / Egress 全開放"]
-      EC2["EC2: t3.micro (Amazon Linux 2023)<br/>SSH 鍵なし / SSM Session Manager 経由<br/>Instance Profile: BotEC2-SSMRole<br/>(IAM ポリシーは /language-teacher/* 配下を再帰許可)"]
-      EBS[("EBS gp3 8 GiB")]
-      SG --- EC2
-      EC2 --- EBS
-
-      subgraph ProdEnv["lt-prod (/opt/language-teacher/prod)"]
-        ProdCompose["docker compose<br/>project: lt-prod"]
-        ProdBotEN["bot-en (prod)"]
-        ProdBotJA["bot-ja (prod)"]
-        ProdDB[("SQLite<br/>prod/data/")]
-        ProdCompose --> ProdBotEN
-        ProdCompose --> ProdBotJA
-        ProdBotEN --> ProdDB
-        ProdBotJA --> ProdDB
+      subgraph Compose["docker compose (lt-prod)"]
+        BotEN["bot-en"]
+        BotJA["bot-ja"]
       end
 
-      subgraph DevEnv["lt-dev (/opt/language-teacher/dev)"]
-        DevCompose["docker compose<br/>project: lt-dev"]
-        DevBotEN["bot-en (dev)"]
-        DevBotJA["bot-ja (dev)"]
-        DevDB[("SQLite<br/>dev/data/")]
-        DevCompose --> DevBotEN
-        DevCompose --> DevBotJA
-        DevBotEN --> DevDB
-        DevBotJA --> DevDB
-      end
-
-      EC2 -.deploy.sh prod.-> ProdCompose
-      EC2 -.deploy.sh dev.-> DevCompose
+      DB[("SQLite (EBS)")]
     end
   end
 
-  subgraph DiscordProd["Discord — 本番サーバー"]
-    ProdGuild["@英語先生Bot<br/>@日本語先生Bot"]
-  end
+  Discord["Discord 本番サーバー"]
+  LLM["LLM API<br/>Gemini / OpenRouter"]
 
-  subgraph DiscordDev["Discord — dev サーバー(隔離)"]
-    DevGuild["@英語先生Bot (Dev)<br/>@日本語先生Bot (Dev)"]
-  end
+  Actions -->|"OIDC + SSM Send-Command"| Deploy
+  Deploy -->|"シークレット取得"| SSM
+  Deploy --> Compose
+  BotEN --> DB
+  BotJA --> DB
+  BotEN --> Discord
+  BotJA --> Discord
+  BotEN --> LLM
+  BotJA --> LLM
+  ```
 
-  Gemini[(Gemini API)]
+**デプロイの流れ(prod)**
 
-  Actions -- "OIDC AssumeRole" --> OIDC
-  OIDC --> DeployRole
-  DeployRole -- "ssm:SendCommand" --> EC2
-  EC2 -- "ssm:GetParameter + kms:Decrypt" --> ProdParams
-  EC2 -- "ssm:GetParameter + kms:Decrypt" --> DevParams
-
-  ProdBotEN --> ProdGuild
-  ProdBotJA --> ProdGuild
-  DevBotEN --> DevGuild
-  DevBotJA --> DevGuild
-
-  ProdBotEN --> Gemini
-  ProdBotJA --> Gemini
-  DevBotEN --> Gemini
-  DevBotJA --> Gemini
-```
-
-**デプロイの流れ**
-
-1. `main` push → GitHub Actions が OIDC で `GitHubActionsDeployRole` を assume → SSM Send-Command で `bash /opt/language-teacher/prod/scripts/deploy.sh prod`
-2. `develop` push → 同様に `... /dev/scripts/deploy.sh dev`
-3. EC2 上の `deploy.sh` が `git reset --hard origin/<branch>` → `/language-teacher/<env>/*` から `.env.en` / `.env.ja` を生成 → `COMPOSE_PROJECT_NAME=lt-<env>` で `docker compose up -d --build`
-4. GitHub Actions は `ssm:GetCommandInvocation` でステータスを polling
+1. `main` に push → GitHub Actions が OIDC で IAM ロールを assume → SSM Send-Command で EC2 上の `deploy.sh prod` を実行。
+2. `deploy.sh` が `git reset --hard` で最新コードを取得 → SSM `/language-teacher/prod/*` から `.env.en` / `.env.ja` を生成 → `docker compose up -d --build`(project: `lt-prod`)。
+3. 起動した bot-en / bot-ja が Discord(本番サーバー)と LLM API に接続し、SQLite(EBS)へ読み書きする。
 
 ---
 
@@ -241,32 +198,34 @@ flowchart TB
 - AWS の制約上、**1 アカウントにつき同 URL の OIDC Provider は 1 つだけ**。本プロジェクトは IAM Role の trust policy で `repo:IwatsukaYura/discord-bot-language-teacher:*` に絞り込み、既存 Provider を流用する形が自然。
 - このため OIDC Provider 本体は本リポジトリで管理しない。本リポジトリの破棄/移動でも Provider は他プロジェクトで使われ続ける。
 
+### 2.11 コストガード: 課金アラーム
+
+**設定内容**
+
+- CloudWatch の課金(推定請求額)を監視するアラームを設定。
+- しきい値超過時に SNS 経由でメール通知。
+- 自動アクション: 推定請求額が **$2 を超えたら EC2 インスタンスを停止**する。
+
+**なぜこれを選んだか**
+
+- 個人運用のため、課金の暴走を確実に止めることを可用性より優先する。$2 はこの構成(EC2 t3.micro + EBS)の想定月額に対する安全側のしきい値。
+- アラーム発火で EC2 が停止すると、手動で再起動するまで Bot は応答しなくなる(コスト保護とのトレードオフ)。
+
 ---
 
-## 3. 解消済みの課題(Phase 7-8 で対応)
-
-| #   | 課題(以前)                                                                           | 対応                                                                   |
-| --- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| 1   | 環境概念なし(`main` push が即本番反映、検証環境がない)                               | dev/prod 分離(2.9 参照)                                                |
-| 2   | `.env` 単一構成で、2 Bot 化に未対応                                                  | `.env.en` / `.env.ja` + `BOT_ROLE`(Phase 7)                            |
-| 3   | SSM パラメータが平坦(`/language-teacher/*`)                                          | `/language-teacher/{prod,dev}/*` に分離                                |
-| 4   | クイズ機能用パラメータ(`QUIZ_CHANNEL_ID` / 学習者 Discord ID)が SSM に未登録         | 両環境とも投入済み                                                     |
-| 5   | 単一クイズ/レポートチャンネルに英語学習者向け / 日本語学習者向けが混在し視認性が悪い | Bot ロール別にチャンネル分離(Phase 9 / SSM パラメータ 9 → 11 個へ拡張) |
-
-## 4. 中長期の課題(未対応)
+## 3. 中長期の課題(未対応)
 
 - **DB バックアップ**:SQLite ファイルは EBS 上にあるだけ。EBS スナップショットの自動取得は未設定。`AWS Backup` または Data Lifecycle Manager の日次運用を将来検討。
-- **障害通知**:本番落ち時の通知経路がない(現状、自分で気づくしかない)。CloudWatch Logs / Metric Filter / SNS の最小構成を将来検討。
+- **障害通知**:Bot のクラッシュ/ダウンを検知する通知経路はない(課金アラーム(2.11)はコスト監視のみで、障害は検知しない)。CloudWatch Logs / Metric Filter / SNS の最小構成を将来検討。
 - **リソース監視**:EC2 のメモリ・CPU の常時監視がない。dev のリソース消費が増えてきた時に prod を圧迫する可能性に気づけない。
 - **IaC 化**:全リソース手動構築のため、再現性がない。Terraform / Pulumi 等で構成を再現可能に。
 - **容量計画**:現状は感覚で「t3.micro で足りる」と判断している。実測ベースの確認なし。
 
-## 5. 未確認 / 不明な情報
+## 4. 未確認 / 不明な情報
 
 AWS API からは確認できなかった事項:
 
 - **EC2 の初期セットアップ手順**(Docker のインストール、`/opt/language-teacher` の clone 元、git remote 設定など):userData 空、手動構築のためログが残っていない。Phase 8 の dev/prod 並存化(`/opt/language-teacher/{prod,dev}/`)も手動で実施した。
 - **EC2 上の Docker / docker-compose のバージョン**:SSM Session で接続しないと不明。
 - **EBS スナップショットが手動で取られている可能性**:未確認(おそらく未設定)。
-- **CloudWatch Alarm の有無**:未確認(おそらく未設定)。
 - **iwatsuka-portfolio プロジェクトの Terraform 内容**:本リポジトリの管理対象外。OIDC Provider 以外に流用しているリソースはないと**信じている**が、確証はない。
