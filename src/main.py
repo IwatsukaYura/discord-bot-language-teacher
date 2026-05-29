@@ -9,8 +9,8 @@ from config import BotConfig, load_bot_config
 from db import query_log, quiz_log
 from lib.dispatcher import dispatch, extract_user_text
 from lib.scheduler import setup_quiz_scheduler, setup_weekly_scheduler
-from quiz.daily import handle_quiz_answer
-from quiz.poster import parse_custom_id
+from quiz.daily import handle_addon_request, handle_quiz_answer
+from quiz.poster import parse_addon_custom_id, parse_custom_id
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -42,19 +42,34 @@ async def on_interaction(interaction: discord.Interaction):
     if not interaction.data:
         return
     custom_id = interaction.data.get("custom_id", "")
+
     parsed = parse_custom_id(custom_id)
-    if parsed is None:
+    if parsed is not None:
+        quiz_id, choice_index = parsed
+        try:
+            await handle_quiz_answer(interaction, quiz_id, choice_index)
+        except Exception:
+            logger.exception("Failed to handle quiz answer (quiz_id=%d)", quiz_id)
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "エラーが出たみたい。少し後でもう一度ボタンを押してみて。",
+                    ephemeral=True,
+                )
         return
-    quiz_id, choice_index = parsed
-    try:
-        await handle_quiz_answer(interaction, quiz_id, choice_index)
-    except Exception:
-        logger.exception("Failed to handle quiz answer (quiz_id=%d)", quiz_id)
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "エラーが出たみたい。少し後でもう一度ボタンを押してみて。",
-                ephemeral=True,
-            )
+
+    addon_parsed = parse_addon_custom_id(custom_id)
+    if addon_parsed is not None:
+        user_id, target_lang, count = addon_parsed
+        try:
+            await handle_addon_request(interaction, user_id, target_lang, count)
+        except Exception:
+            logger.exception("Failed to handle addon request (user=%s)", user_id)
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "エラーが出たみたい。少し後でもう一度ボタンを押してみて。",
+                    ephemeral=True,
+                )
+        return
 
 
 @client.event

@@ -1,6 +1,9 @@
 import discord
 
 _QUIZ_BUTTON_PREFIX = "quiz"
+_ADDON_BUTTON_PREFIX = "quizadd"
+_ADDON_COUNTS = (1, 2, 3)
+_ADDON_DECLINE = 0
 _BUTTON_LABEL_MAX = 80
 
 
@@ -14,12 +17,19 @@ def _mode_label(mode: str, explanation_lang: str) -> str:
     return "Review" if mode == "review" else "New word"
 
 
-def _title_for(mode: str, explanation_lang: str, position: tuple[int, int]) -> str:
+def _title_for(
+    mode: str,
+    explanation_lang: str,
+    position: tuple[int, int],
+    addon: bool = False,
+) -> str:
     current, total = position
     mode_label = _mode_label(mode, explanation_lang)
     if explanation_lang == "ja":
-        return f"🧩 今日のクイズ ({current}/{total}) — {mode_label}"
-    return f"🧩 Daily Quiz ({current}/{total}) — {mode_label}"
+        prefix = "追加クイズ" if addon else "今日のクイズ"
+        return f"🧩 {prefix} ({current}/{total}) — {mode_label}"
+    prefix = "Bonus Quiz" if addon else "Daily Quiz"
+    return f"🧩 {prefix} ({current}/{total}) — {mode_label}"
 
 
 def _question_hint(explanation_lang: str) -> str:
@@ -33,9 +43,10 @@ def build_quiz_embed(
     explanation_lang: str,
     mode: str,
     position: tuple[int, int],
+    addon: bool = False,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title=_title_for(mode, explanation_lang, position),
+        title=_title_for(mode, explanation_lang, position, addon=addon),
         color=_color_for(target_lang),
     )
     embed.description = f"**{source_text}**"
@@ -81,3 +92,60 @@ class QuizView(discord.ui.View):
                     custom_id=build_custom_id(quiz_id, i),
                 )
             )
+
+
+def build_addon_custom_id(user_id: str, target_lang: str, count: int) -> str:
+    return f"{_ADDON_BUTTON_PREFIX}:{user_id}:{target_lang}:{count}"
+
+
+def parse_addon_custom_id(custom_id: str) -> tuple[str, str, int] | None:
+    """追加クイズボタンの custom_id を (user_id, target_lang, count) にパース。
+
+    自分以外由来 / 不正形式なら None。count は 0(なし)〜3 のみ許可。
+    """
+    if not custom_id.startswith(f"{_ADDON_BUTTON_PREFIX}:"):
+        return None
+    parts = custom_id.split(":")
+    if len(parts) != 4:
+        return None
+    user_id, target_lang, count_str = parts[1], parts[2], parts[3]
+    try:
+        count = int(count_str)
+    except ValueError:
+        return None
+    if count not in (_ADDON_DECLINE, *_ADDON_COUNTS):
+        return None
+    return user_id, target_lang, count
+
+
+def build_addon_prompt(explanation_lang: str) -> str:
+    if explanation_lang == "ja":
+        return "🔥 もっとやる? 追加できるのは今日ここまで。下から選んでね"
+    return "🔥 Want more? This is your one chance today — pick below"
+
+
+class AddonView(discord.ui.View):
+    """追加クイズの増減を選ぶ View (+1 / +2 / +3 / なし)。
+
+    QuizView と同様 custom_id ベースで永続化し、main の on_interaction で処理する。
+    custom_id に user_id と target_lang を埋め込み、本人検証と言語特定を自己完結させる。
+    """
+
+    def __init__(self, user_id: str, target_lang: str, explanation_lang: str):
+        super().__init__(timeout=None)
+        for count in _ADDON_COUNTS:
+            self.add_item(
+                discord.ui.Button(
+                    style=discord.ButtonStyle.primary,
+                    label=f"+{count}",
+                    custom_id=build_addon_custom_id(user_id, target_lang, count),
+                )
+            )
+        decline_label = "なし" if explanation_lang == "ja" else "No thanks"
+        self.add_item(
+            discord.ui.Button(
+                style=discord.ButtonStyle.secondary,
+                label=decline_label,
+                custom_id=build_addon_custom_id(user_id, target_lang, _ADDON_DECLINE),
+            )
+        )

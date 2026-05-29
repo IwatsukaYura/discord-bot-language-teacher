@@ -30,6 +30,13 @@ CREATE TABLE IF NOT EXISTS quiz_log (
 CREATE INDEX IF NOT EXISTS idx_quiz_user_delivered ON quiz_log(discord_user_id, delivered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_quiz_message        ON quiz_log(message_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_user_source    ON quiz_log(discord_user_id, source_text);
+
+CREATE TABLE IF NOT EXISTS quiz_addon (
+    discord_user_id  TEXT NOT NULL,
+    target_lang      TEXT NOT NULL,
+    used_date        TEXT NOT NULL,
+    UNIQUE(discord_user_id, target_lang, used_date)
+);
 """
 
 
@@ -148,6 +155,56 @@ def get_user_word_history(
             (discord_user_id, target_lang),
         )
         return [row[0] for row in cursor.fetchall()]
+
+
+def count_unanswered_today(
+    discord_user_id: str,
+    target_lang: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """今日(JST)配信され、まだ未回答のクイズ件数。追加プロンプト表示判定に使う。"""
+    now = datetime.now(JST)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_start = today_start + timedelta(days=1)
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM quiz_log "
+            "WHERE discord_user_id = ? AND target_lang = ? "
+            "AND delivered_at >= ? AND delivered_at < ? AND answered_at IS NULL",
+            (discord_user_id, target_lang, today_start.isoformat(), tomorrow_start.isoformat()),
+        )
+        return cursor.fetchone()[0]
+
+
+def has_used_addon_today(
+    discord_user_id: str,
+    target_lang: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> bool:
+    """今日(JST)すでに追加クイズ枠を消費済みかどうか。"""
+    today = datetime.now(JST).date().isoformat()
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT 1 FROM quiz_addon "
+            "WHERE discord_user_id = ? AND target_lang = ? AND used_date = ? LIMIT 1",
+            (discord_user_id, target_lang, today),
+        )
+        return cursor.fetchone() is not None
+
+
+def mark_addon_used(
+    discord_user_id: str,
+    target_lang: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """今日(JST)の追加クイズ枠を消費済みにする。同日重複呼び出しは無視。"""
+    today = datetime.now(JST).date().isoformat()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO quiz_addon (discord_user_id, target_lang, used_date) "
+            "VALUES (?, ?, ?)",
+            (discord_user_id, target_lang, today),
+        )
 
 
 def get_recent_query_history(

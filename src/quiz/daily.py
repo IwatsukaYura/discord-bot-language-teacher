@@ -68,6 +68,51 @@ async def _post_for_learner(
                     db_path=db_path, position=(2, 2))
 
 
+async def post_addon_quizzes(
+    channel: discord.abc.Messageable,
+    learner: dict,
+    count: int,
+    db_path: Path | None = None,
+) -> None:
+    """ユーザー要求に応じて追加の新出クイズを count 問投稿する。
+
+    除外リストは 1 度だけ取得し、互いに異なる count 問をバッチ生成してから投稿する
+    (1 問ずつ生成するより API コールを大幅に削減する)。
+    """
+    if db_path is None:
+        db_path = quiz_log.DEFAULT_DB_PATH
+
+    user_id = learner["discord_user_id"]
+    target_lang = learner["target_lang"]
+    explanation_lang = _explanation_lang_for(target_lang)
+
+    recent = quiz_log.get_recent_query_history(user_id, target_lang, limit=30, db_path=db_path)
+    all_past_quiz = quiz_log.get_all_quiz_source_texts(user_id, target_lang, db_path=db_path)
+    all_words = quiz_log.get_user_word_history(user_id, target_lang, db_path=db_path)
+    exclusion = list(set(all_past_quiz + all_words))
+
+    quizzes = await quiz_handler.generate_new_quiz_batch(
+        count=count,
+        history=recent,
+        exclusion_list=exclusion,
+        target_lang=target_lang,
+        explanation_lang=explanation_lang,
+    )
+
+    total = len(quizzes)
+    for i, quiz_content in enumerate(quizzes):
+        try:
+            await _send_quiz(
+                channel, learner, mode="new",
+                source_text=quiz_content["source_text"],
+                quiz_content=quiz_content,
+                db_path=db_path, position=(i + 1, total), addon=True,
+            )
+        except Exception:
+            logger.exception("Failed to post addon quiz %d/%d for %s",
+                             i + 1, total, learner.get("name"))
+
+
 async def _post_one(
     channel: discord.abc.Messageable,
     learner: dict,
@@ -75,6 +120,7 @@ async def _post_one(
     review_source: str | None,
     db_path: Path,
     position: tuple[int, int],
+    addon: bool = False,
 ) -> None:
     user_id = learner["discord_user_id"]
     target_lang = learner["target_lang"]
@@ -102,6 +148,25 @@ async def _post_one(
         )
         source_text = quiz_content["source_text"]
 
+    await _send_quiz(channel, learner, mode, source_text, quiz_content,
+                     db_path=db_path, position=position, addon=addon)
+
+
+async def _send_quiz(
+    channel: discord.abc.Messageable,
+    learner: dict,
+    mode: str,
+    source_text: str,
+    quiz_content: dict,
+    db_path: Path,
+    position: tuple[int, int],
+    addon: bool = False,
+) -> None:
+    """生成済みの quiz_content を DB 保存 → embed/ボタン付きで投稿する共通処理。"""
+    user_id = learner["discord_user_id"]
+    target_lang = learner["target_lang"]
+    explanation_lang = _explanation_lang_for(target_lang)
+
     quiz_id = quiz_log.insert_quiz(
         discord_user_id=user_id,
         target_lang=target_lang,
@@ -122,6 +187,7 @@ async def _post_one(
         explanation_lang=explanation_lang,
         mode=mode,
         position=position,
+        addon=addon,
     )
     view = poster.QuizView(quiz_id=quiz_id, choices=quiz_content["choices"])
 
@@ -185,3 +251,81 @@ async def handle_quiz_answer(
         body_lines = [line_chosen, line_correct, "", quiz["explanation"]]
 
     await interaction.response.send_message(f"{header}\n" + "\n".join(body_lines))
+
+    await _maybe_offer_addon(
+        interaction,
+        user_id=quiz["discord_user_id"],
+        target_lang=quiz["target_lang"],
+        explanation_lang=explanation_lang,
+        db_path=db_path,
+    )
+
+
+async def _maybe_offer_addon(
+    interaction: discord.Interaction,
+    user_id: str,
+    target_lang: str,
+    explanation_lang: str,
+    db_path: Path,
+) -> None:
+    """今日のクイズを全て回答し終え、かつ追加枠が未使用なら追加プロンプトを出す。"""
+    if quiz_log.count_unanswered_today(user_id, target_lang, db_path=db_path) > 0:
+        return
+    if quiz_log.has_used_addon_today(user_id, target_lang, db_path=db_path):
+        return
+    view = poster.AddonView(
+        user_id=user_id,
+        target_lang=target_lang,
+        explanation_lang=explanation_lang,
+    )
+    await interaction.followup.send(
+        content=poster.build_addon_prompt(explanation_lang),
+        view=view,
+    )
+
+
+async def handle_addon_request(
+    interaction: discord.Interaction,
+    user_id: str,
+    target_lang: str,
+    count: int,
+    db_path: Path | None = None,
+) -> None:
+    """追加クイズボタン押下をハンドル: 本人検証 → 枠チェック → 消費 → 投稿。"""
+    if db_path is None:
+        db_path = quiz_log.DEFAULT_DB_PATH
+
+    explanation_lang = _explanation_lang_for(target_lang)
+    is_ja = explanation_lang == "ja"
+
+    if str(interaction.user.id) != user_id:
+        msg = "これはあなた用のボタンじゃないよ。" if is_ja else "This isn't your button."
+        await interaction.response.send_message(msg, ephemeral=True)
+        return
+
+    if quiz_log.has_used_addon_today(user_id, target_lang, db_path=db_path):
+        msg = "今日はもう追加済みだよ。また明日!" if is_ja else "Already added today. See you tomorrow!"
+        await interaction.response.edit_message(view=None)
+        await interaction.followup.send(msg, ephemeral=True)
+        return
+
+    quiz_log.mark_addon_used(user_id, target_lang, db_path=db_path)
+
+    if count == 0:
+        msg = "了解! また明日ね。" if is_ja else "Got it! See you tomorrow."
+        await interaction.response.edit_message(content=msg, view=None)
+        return
+
+    ack = (
+        f"追加クイズを {count} 問用意するね…"
+        if is_ja
+        else f"Preparing {count} more quiz(zes)…"
+    )
+    await interaction.response.edit_message(content=ack, view=None)
+
+    learner = {
+        "discord_user_id": user_id,
+        "name": interaction.user.display_name,
+        "target_lang": target_lang,
+    }
+    await post_addon_quizzes(interaction.channel, learner, count, db_path=db_path)
