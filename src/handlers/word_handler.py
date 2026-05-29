@@ -3,7 +3,7 @@ import logging
 import re
 from urllib.parse import quote
 
-from llm import gemini_client
+from llm import client as llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -96,8 +96,8 @@ async def handle_word(
     dictionary_url_template: str,
 ) -> dict:
     system_prompt = _build_system_prompt(target_lang, explanation_lang)
-    raw_response = await gemini_client.generate(system_prompt, word)
-    cleaned = _strip_code_fences(raw_response)
+    result = await llm_client.generate(system_prompt, word)
+    cleaned = _strip_code_fences(result.text)
 
     try:
         parsed = json.loads(cleaned)
@@ -110,4 +110,5 @@ async def handle_word(
         "input": user_input,
         "senses": parsed["senses"],
         "dictionary_url": _build_dictionary_url(user_input, dictionary_url_template),
+        "model_label": llm_client.format_model(result),
     }

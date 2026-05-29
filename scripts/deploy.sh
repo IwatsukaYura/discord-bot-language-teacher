@@ -50,6 +50,10 @@ JA_LEARNER_DISCORD_ID=$(get_param "$PARAM_PREFIX/ja-learner-discord-id")
 DISCORD_BOT_TOKEN_EN=$(get_param "$PARAM_PREFIX/discord-bot-token-en")
 DISCORD_BOT_TOKEN_JA=$(get_param "$PARAM_PREFIX/discord-bot-token-ja")
 
+# OpenRouter は任意のフォールバック。未登録でもデプロイを止めない (空なら Gemini のみで動作)。
+OPENROUTER_API_KEY=$(get_param "$PARAM_PREFIX/openrouter-api-key" 2>/dev/null || echo "")
+OPENROUTER_MODEL=$(get_param "$PARAM_PREFIX/openrouter-model" 2>/dev/null || echo "")
+
 write_env_file() {
   local file="$1"
   local role="$2"
@@ -61,6 +65,8 @@ write_env_file() {
 BOT_ROLE=$role
 DISCORD_BOT_TOKEN=$token
 GEMINI_API_KEY=$GEMINI_API_KEY
+OPENROUTER_API_KEY=$OPENROUTER_API_KEY
+OPENROUTER_MODEL=$OPENROUTER_MODEL
 REPORT_CHANNEL_ID=$report_channel_id
 QUIZ_CHANNEL_ID=$quiz_channel_id
 EN_LEARNER_NAME=$EN_LEARNER_NAME

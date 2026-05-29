@@ -2,7 +2,7 @@ import json
 import logging
 import re
 
-from llm import gemini_client
+from llm import client as llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +52,8 @@ async def handle_sentence(
     explanation_lang: str,
 ) -> dict:
     system_prompt = _build_system_prompt(target_lang, explanation_lang)
-    raw_response = await gemini_client.generate(system_prompt, text)
-    cleaned = _strip_code_fences(raw_response)
+    result = await llm_client.generate(system_prompt, text)
+    cleaned = _strip_code_fences(result.text)
 
     try:
         parsed = json.loads(cleaned)
@@ -67,4 +67,5 @@ async def handle_sentence(
         "translation": parsed["translation"],
         "literal_translation": parsed.get("literal_translation", ""),
         "key_points": parsed.get("key_points", []),
+        "model_label": llm_client.format_model(result),
     }
