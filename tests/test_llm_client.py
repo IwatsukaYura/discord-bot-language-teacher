@@ -19,25 +19,29 @@ class TestRunChain:
     async def test_returns_first_backend_result(self):
         called = []
         chain = [
-            (_backend(result="A", recorder=called, name="a"), "m1", "a"),
-            (_backend(result="B", recorder=called, name="b"), "m2", "b"),
+            (_backend(result="A", recorder=called, name="a"), "m1", "gemini"),
+            (_backend(result="B", recorder=called, name="b"), "m2", "gemini"),
         ]
 
         out = await llm_client._run_chain(chain, "sys", "user")
 
-        assert out == "A"
+        assert out.text == "A"
+        assert out.model == "m1"
+        assert out.provider == "gemini"
         assert called == ["a"]
 
     async def test_falls_back_on_rate_limit(self):
         called = []
         chain = [
-            (_backend(exc=LLMRateLimitError("429"), recorder=called, name="a"), "m1", "a"),
-            (_backend(result="B", recorder=called, name="b"), "m2", "b"),
+            (_backend(exc=LLMRateLimitError("429"), recorder=called, name="a"), "m1", "gemini"),
+            (_backend(result="B", recorder=called, name="b"), "m2", "openrouter"),
         ]
 
         out = await llm_client._run_chain(chain, "sys", "user")
 
-        assert out == "B"
+        assert out.text == "B"
+        assert out.model == "m2"
+        assert out.provider == "openrouter"
         assert called == ["a", "b"]
 
     async def test_raises_llm_error_when_all_exhausted(self):
@@ -60,6 +64,16 @@ class TestRunChain:
             await llm_client._run_chain(chain, "sys", "user")
 
         assert called == ["a"]
+
+
+class TestFormatModel:
+    def test_gemini_shows_bare_model(self):
+        result = llm_client.LLMResult(text="x", model="gemini-3.1-flash-lite", provider="gemini")
+        assert llm_client.format_model(result) == "gemini-3.1-flash-lite"
+
+    def test_openrouter_shows_provider_and_model(self):
+        result = llm_client.LLMResult(text="x", model="vendor/model", provider="openrouter")
+        assert llm_client.format_model(result) == "openrouter · vendor/model"
 
 
 class TestBuildChain:

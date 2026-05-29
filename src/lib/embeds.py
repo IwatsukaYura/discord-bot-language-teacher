@@ -14,6 +14,12 @@ def _color_for(target_lang: str) -> discord.Color:
     return discord.Color.blue() if target_lang == "en" else discord.Color.red()
 
 
+def _set_model_footer(embed: discord.Embed, result: dict) -> None:
+    model_label = result.get("model_label")
+    if model_label:
+        embed.set_footer(text=f"via {model_label}")
+
+
 def _format_sense_heading(sense: dict, index: int, multi: bool) -> str:
     headword = sense["headword"]
     reading = sense.get("headword_reading", "")
@@ -59,6 +65,7 @@ def build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> d
 
     label_link = "辞書で見る" if is_ja else "View in dictionary"
     embed.add_field(name="🔗", value=f"[{label_link}]({result['dictionary_url']})", inline=False)
+    _set_model_footer(embed, result)
     return embed
 
 
@@ -88,6 +95,7 @@ def build_sentence_embed(result: dict, target_lang: str, explanation_lang: str) 
             inline=False,
         )
 
+    _set_model_footer(embed, result)
     return embed
 
 
@@ -122,4 +130,5 @@ def build_grammar_embed(result: dict) -> discord.Embed:
             inline=False,
         )
 
+    _set_model_footer(embed, result)
     return embed

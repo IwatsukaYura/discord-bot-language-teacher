@@ -23,7 +23,8 @@ Respond with ONLY one word: word, sentence, or grammar. No explanation, no punct
 
 
 async def classify_input(text: str) -> str:
-    response = await llm_client.generate(_SYSTEM_PROMPT, text)
+    result = await llm_client.generate(_SYSTEM_PROMPT, text)
+    response = result.text
     normalized = response.strip().lower().strip(string.punctuation)
 
     if normalized not in VALID_TYPES:

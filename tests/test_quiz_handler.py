@@ -3,6 +3,7 @@ import json
 import pytest
 
 from handlers import quiz_handler
+from llm import client as llm_client
 
 
 def _quiz_obj(source_text: str, correct_index: int = 0) -> dict:
@@ -33,7 +34,8 @@ class FakeGenerate:
         self.prompts.append(system_prompt)
         idx = self.calls
         self.calls += 1
-        return self.responses[idx] if idx < len(self.responses) else self.responses[-1]
+        text = self.responses[idx] if idx < len(self.responses) else self.responses[-1]
+        return llm_client.LLMResult(text=text, model="test-model", provider="gemini")
 
 
 class TestGenerateNewQuizDedup:
@@ -46,6 +48,7 @@ class TestGenerateNewQuizDedup:
         )
 
         assert result["source_text"] == "鉛筆"
+        assert result["model_label"] == "test-model"
         assert fake.calls == 1
 
     async def test_retries_until_non_duplicate(self, monkeypatch):
@@ -105,6 +108,7 @@ class TestGenerateNewQuizBatch:
         )
 
         assert [q["source_text"] for q in result] == ["a", "b", "c"]
+        assert all(q["model_label"] == "test-model" for q in result)
         assert fake.calls == 1
 
     async def test_dedups_within_a_batch(self, monkeypatch):

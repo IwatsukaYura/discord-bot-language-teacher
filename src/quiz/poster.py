@@ -44,6 +44,7 @@ def build_quiz_embed(
     mode: str,
     position: tuple[int, int],
     addon: bool = False,
+    model_label: str | None = None,
 ) -> discord.Embed:
     embed = discord.Embed(
         title=_title_for(mode, explanation_lang, position, addon=addon),
@@ -55,6 +56,8 @@ def build_quiz_embed(
         value=_question_hint(explanation_lang),
         inline=False,
     )
+    if model_label:
+        embed.set_footer(text=f"via {model_label}")
     return embed
 
 

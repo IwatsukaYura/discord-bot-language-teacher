@@ -66,3 +66,18 @@ class TestBuildQuizEmbedAddon:
             explanation_lang="ja", mode="new", position=(1, 2),
         )
         assert "今日" in embed.title
+
+    def test_model_label_sets_footer(self):
+        embed = poster.build_quiz_embed(
+            source_text="apple", question_text="?", target_lang="en",
+            explanation_lang="ja", mode="new", position=(1, 2),
+            model_label="gemini-3.1-flash-lite",
+        )
+        assert embed.footer.text == "via gemini-3.1-flash-lite"
+
+    def test_no_footer_without_model_label(self):
+        embed = poster.build_quiz_embed(
+            source_text="apple", question_text="?", target_lang="en",
+            explanation_lang="ja", mode="new", position=(1, 2),
+        )
+        assert embed.footer.text is None

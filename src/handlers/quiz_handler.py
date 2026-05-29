@@ -209,8 +209,8 @@ async def generate_review_quiz(
 ) -> dict:
     """過去に学習した語の 4 択復習クイズを生成。source_text は呼び出し側が指定。"""
     system_prompt = _build_review_prompt(target_lang, explanation_lang)
-    raw_response = await llm_client.generate(system_prompt, source_word)
-    parsed = _parse_quiz_json(raw_response)
+    result = await llm_client.generate(system_prompt, source_word)
+    parsed = _parse_quiz_json(result.text)
     _validate_quiz(parsed, require_source_text=False)
     return {
         "source_text": source_word,
@@ -218,6 +218,7 @@ async def generate_review_quiz(
         "choices": parsed["choices"],
         "correct_index": parsed["correct_index"],
         "explanation": parsed["explanation"],
+        "model_label": llm_client.format_model(result),
     }
 
 
@@ -239,10 +240,10 @@ async def generate_new_quiz(
         system_prompt = _build_new_prompt(
             target_lang, explanation_lang, history, current_exclusion,
         )
-        raw_response = await llm_client.generate(
+        result = await llm_client.generate(
             system_prompt, "Pick a new word and create a quiz.",
         )
-        parsed = _parse_quiz_json(raw_response)
+        parsed = _parse_quiz_json(result.text)
         _validate_quiz(parsed, require_source_text=True)
         source_text = parsed["source_text"]
 
@@ -253,6 +254,7 @@ async def generate_new_quiz(
                 "choices": parsed["choices"],
                 "correct_index": parsed["correct_index"],
                 "explanation": parsed["explanation"],
+                "model_label": llm_client.format_model(result),
             }
 
         logger.warning(
@@ -292,11 +294,12 @@ async def generate_new_quiz_batch(
         system_prompt = _build_new_batch_prompt(
             target_lang, explanation_lang, history, current_exclusion, missing,
         )
-        raw_response = await llm_client.generate(
+        result = await llm_client.generate(
             system_prompt, f"Pick {missing} new words and create quizzes.",
         )
+        model_label = llm_client.format_model(result)
 
-        for parsed in _parse_quiz_array(raw_response):
+        for parsed in _parse_quiz_array(result.text):
             try:
                 _validate_quiz(parsed, require_source_text=True)
             except ValueError:
@@ -316,6 +319,7 @@ async def generate_new_quiz_batch(
                 "choices": parsed["choices"],
                 "correct_index": parsed["correct_index"],
                 "explanation": parsed["explanation"],
+                "model_label": model_label,
             })
             if len(collected) >= count:
                 break
