@@ -6,8 +6,8 @@ from google.genai import types
 
 from llm.errors import LLMRateLimitError
 
-# 429: レート/クォータ超過, 5xx: サーバ過負荷。いずれも別モデルへのフォールバック対象。
-_FALLBACK_CODES = {429, 500, 502, 503}
+# 404: モデル不在(名称変更等), 429: レート/クォータ超過, 5xx: サーバ過負荷。いずれも別モデルへフォールバック。
+_FALLBACK_CODES = {404, 429, 500, 502, 503}
 
 _client: genai.Client | None = None
 

@@ -29,7 +29,7 @@ Backend = Callable[[str, str, str], Awaitable[str]]
 ChainStep = tuple[Backend, str, str]
 
 _GEMINI_PRIMARY = "gemini-3.1-flash-lite"
-_GEMINI_SECONDARY = "gemini-3.1-flash"
+_GEMINI_SECONDARY = "gemini-3.5-flash"
 
 
 def _build_chain() -> list[ChainStep]:
