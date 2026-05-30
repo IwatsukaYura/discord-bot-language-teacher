@@ -207,6 +207,26 @@ def mark_addon_used(
         )
 
 
+def get_accuracy_in_range(
+    target_lang: str,
+    start: datetime,
+    end: datetime,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> tuple[int, int]:
+    """期間内に配信され回答済みのクイズについて (answered, correct) を返す。
+    answered は回答済み件数(分母)、correct はそのうち正解した件数(分子)。"""
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(is_correct), 0) FROM quiz_log "
+            "WHERE target_lang = ? "
+            "AND delivered_at >= ? AND delivered_at < ? "
+            "AND is_correct IS NOT NULL",
+            (target_lang, start.isoformat(), end.isoformat()),
+        )
+        answered, correct = cursor.fetchone()
+        return answered, correct
+
+
 def get_recent_query_history(
     discord_user_id: str,
     target_lang: str,

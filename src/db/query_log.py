@@ -80,3 +80,34 @@ def get_logs_in_range(
                 d["reading"] = ""
             rows.append(d)
         return rows
+
+
+def count_queries_by_kind_in_range(
+    target_lang: str,
+    start: datetime,
+    end: datetime,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> dict[str, int]:
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT kind, COUNT(*) FROM query_log "
+            "WHERE target_lang = ? AND queried_at >= ? AND queried_at < ? "
+            "GROUP BY kind",
+            (target_lang, start.isoformat(), end.isoformat()),
+        )
+        return {kind: count for kind, count in cursor.fetchall()}
+
+
+def count_active_days_in_range(
+    target_lang: str,
+    start: datetime,
+    end: datetime,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "SELECT COUNT(DISTINCT substr(queried_at, 1, 10)) FROM query_log "
+            "WHERE target_lang = ? AND queried_at >= ? AND queried_at < ?",
+            (target_lang, start.isoformat(), end.isoformat()),
+        )
+        return cursor.fetchone()[0]

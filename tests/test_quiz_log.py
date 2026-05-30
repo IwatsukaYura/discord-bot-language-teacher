@@ -25,6 +25,23 @@ def _insert_quiz_raw(
         )
 
 
+def _insert_quiz_full(
+    db_path: Path,
+    discord_user_id: str,
+    target_lang: str,
+    delivered_at_iso: str,
+    is_correct: int | None,
+) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO quiz_log "
+            "(discord_user_id, target_lang, kind, mode, source_text, question_text, "
+            "choices_json, correct_index, explanation, delivered_at, is_correct) "
+            "VALUES (?, ?, 'word', 'new', 's', 'q', '[]', 0, 'e', ?, ?)",
+            (discord_user_id, target_lang, delivered_at_iso, is_correct),
+        )
+
+
 class TestInitDb:
     def test_creates_quiz_addon_table(self, tmp_path):
         db_path = tmp_path / "test.db"
@@ -141,3 +158,67 @@ class TestCountUnansweredToday:
         _insert_quiz_raw(db_path, "1", "ja", now)
 
         assert quiz_log.count_unanswered_today("1", "en", db_path=db_path) == 1
+
+
+class TestGetAccuracyInRange:
+    def test_counts_only_answered_quizzes(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        quiz_log.init_db(db_path)
+        _insert_quiz_full(db_path, "1", "en", "2026-05-15T10:00:00+09:00", is_correct=1)
+        _insert_quiz_full(db_path, "1", "en", "2026-05-15T11:00:00+09:00", is_correct=0)
+        _insert_quiz_full(db_path, "1", "en", "2026-05-15T12:00:00+09:00", is_correct=None)
+
+        answered, correct = quiz_log.get_accuracy_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-16T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert answered == 2
+        assert correct == 1
+
+    def test_returns_zero_when_no_records(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        quiz_log.init_db(db_path)
+
+        answered, correct = quiz_log.get_accuracy_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-16T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert answered == 0
+        assert correct == 0
+
+    def test_excludes_other_target_lang(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        quiz_log.init_db(db_path)
+        _insert_quiz_full(db_path, "1", "ja", "2026-05-15T10:00:00+09:00", is_correct=1)
+
+        answered, correct = quiz_log.get_accuracy_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-16T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert answered == 0
+        assert correct == 0
+
+    def test_excludes_outside_range(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        quiz_log.init_db(db_path)
+        _insert_quiz_full(db_path, "1", "en", "2026-05-10T10:00:00+09:00", is_correct=1)
+        _insert_quiz_full(db_path, "1", "en", "2026-05-20T10:00:00+09:00", is_correct=1)
+
+        answered, correct = quiz_log.get_accuracy_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-16T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert answered == 0
+        assert correct == 0
