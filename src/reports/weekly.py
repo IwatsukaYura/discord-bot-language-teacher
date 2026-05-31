@@ -79,12 +79,13 @@ def build_weekly_summary(logs: list[dict]) -> dict[str, dict[str, list[dict]]]:
     }
 
 
-def get_current_week_range(now: datetime) -> tuple[datetime, datetime]:
-    days_since_monday = now.weekday()
-    monday = (now - timedelta(days=days_since_monday)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    return monday, now
+def get_report_period(now: datetime) -> tuple[datetime, datetime]:
+    """週次レポートの集計期間: 発火時点から遡る 7 日間 (rolling window)。
+
+    例) 土曜09:00 発火 → 前週土曜09:00 〜 当週土曜09:00 の 7 日間。
+    DB クエリは半開区間 [start, end) で行うため、終端は now (=次回発火直前) としない。
+    """
+    return now - timedelta(days=7), now
 
 
 def _format_count_suffix(count: int) -> str:
@@ -222,7 +223,7 @@ async def post_weekly_reports(
     if db_path is None:
         db_path = query_log.DEFAULT_DB_PATH
 
-    start, end = get_current_week_range(now)
+    start, end = get_report_period(now)
     logs = query_log.get_logs_in_range(start, end, db_path=db_path)
     summary = build_weekly_summary(logs)
 
@@ -240,7 +241,8 @@ async def post_weekly_reports(
     quiz_stats = quiz_log.get_accuracy_in_range(
         target_lang, start, end, db_path=db_path
     )
-    total_days = (end.date() - start.date()).days + 1
+    # rolling 7-day window: (end - start) は厳密に 7 日。
+    total_days = (end - start).days
 
     channel = client.get_channel(channel_id) or await client.fetch_channel(channel_id)
     embed = build_weekly_embed(

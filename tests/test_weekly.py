@@ -306,9 +306,10 @@ class TestPostWeeklyReports:
 
         # Active days counts query_log activity dates only:
         # 2026-05-19, 20, 21 = 3 distinct dates (quiz on 22 does not count).
+        # Rolling window: 2026-05-17 21:00 〜 2026-05-24 21:00 → all 3 dates inside.
         days_field = next(f for f in embed.fields if "学習日数" in f.name)
         assert "3" in days_field.value
-        assert "7" in days_field.value  # Sun 21:00 → 7 days from Mon
+        assert "7" in days_field.value  # rolling 7-day window
 
         # Quiz: 2 answered, 1 correct = 50%
         quiz_field = next(f for f in embed.fields if "クイズ" in f.name)
@@ -317,7 +318,8 @@ class TestPostWeeklyReports:
         # View has the CSV button
         from reports.weekly_view import WeeklyCsvView
         assert isinstance(view, WeeklyCsvView)
-        assert view.children[0].custom_id == "weekly_csv:en:2026-05-18"
+        # Rolling window start: 2026-05-24 21:00 - 7 days = 2026-05-17
+        assert view.children[0].custom_id == "weekly_csv:en:2026-05-17"
 
     async def test_uses_only_target_lang_data(self, tmp_path):
         from db import quiz_log

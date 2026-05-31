@@ -11,24 +11,26 @@ def _item(text: str, summary: str, count: int = 1, reading: str = "") -> dict:
     return {"text": text, "summary": summary, "count": count, "reading": reading}
 
 
-class TestGetCurrentWeekRange:
-    def test_when_now_is_sunday_start_is_monday_of_same_week(self):
-        now = datetime(2026, 5, 24, 21, 0, tzinfo=JST)
-        start, end = weekly.get_current_week_range(now)
-        assert start == datetime(2026, 5, 18, 0, 0, tzinfo=JST)
+class TestGetReportPeriod:
+    def test_rolling_7_day_window_from_saturday_morning(self):
+        # 土曜09:00 発火 → 前週土曜09:00 〜 当週土曜09:00
+        now = datetime(2026, 5, 30, 9, 0, tzinfo=JST)
+        start, end = weekly.get_report_period(now)
+        assert start == datetime(2026, 5, 23, 9, 0, tzinfo=JST)
         assert end == now
 
-    def test_when_now_is_monday_start_is_same_day_midnight(self):
+    def test_rolling_window_works_for_any_fire_time(self):
+        # 任意の発火時刻でも常に 7 日前から
         now = datetime(2026, 5, 18, 9, 30, tzinfo=JST)
-        start, end = weekly.get_current_week_range(now)
-        assert start == datetime(2026, 5, 18, 0, 0, tzinfo=JST)
+        start, end = weekly.get_report_period(now)
+        assert start == datetime(2026, 5, 11, 9, 30, tzinfo=JST)
         assert end == now
 
-    def test_when_now_is_wednesday_start_is_monday_of_same_week(self):
+    def test_window_length_is_exactly_seven_days(self):
         now = datetime(2026, 5, 20, 15, 0, tzinfo=JST)
-        start, end = weekly.get_current_week_range(now)
-        assert start == datetime(2026, 5, 18, 0, 0, tzinfo=JST)
-        assert end == now
+        start, end = weekly.get_report_period(now)
+        assert (end - start).days == 7
+        assert (end - start).total_seconds() == 7 * 24 * 3600
 
 
 class TestBuildWeeklyEmbed:
