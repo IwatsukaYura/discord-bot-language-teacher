@@ -11,6 +11,10 @@ from lib.dispatcher import dispatch, extract_user_text
 from lib.scheduler import setup_quiz_scheduler, setup_weekly_scheduler
 from quiz.daily import handle_addon_request, handle_quiz_answer
 from quiz.poster import parse_addon_custom_id, parse_custom_id
+from reports.weekly_view import (
+    handle_weekly_csv_click,
+    parse_custom_id as parse_weekly_csv_custom_id,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -67,6 +71,23 @@ async def on_interaction(interaction: discord.Interaction):
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "エラーが出たみたい。少し後でもう一度ボタンを押してみて。",
+                    ephemeral=True,
+                )
+        return
+
+    weekly_csv_parsed = parse_weekly_csv_custom_id(custom_id)
+    if weekly_csv_parsed is not None:
+        target_lang, start = weekly_csv_parsed
+        try:
+            await handle_weekly_csv_click(interaction, target_lang, start)
+        except Exception:
+            logger.exception(
+                "Failed to handle weekly CSV click (lang=%s, start=%s)",
+                target_lang, start.isoformat(),
+            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "CSV生成でエラーが出たみたい。少し後でもう一度押してみて。",
                     ephemeral=True,
                 )
         return

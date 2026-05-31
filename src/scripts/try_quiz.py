@@ -44,7 +44,7 @@ async def _do_new(target_lang: str, user_id: str | None) -> dict:
     if user_id:
         history = quiz_log.get_recent_query_history(user_id, target_lang, limit=30)
         all_past_quiz = quiz_log.get_all_quiz_source_texts(user_id, target_lang)
-        all_words = quiz_log.get_user_word_history(user_id, target_lang)
+        all_words = quiz_log.get_studied_target_lang_words(user_id, target_lang)
         exclusion = list(set(all_past_quiz + all_words))
     return await quiz_handler.generate_new_quiz(
         history=history,

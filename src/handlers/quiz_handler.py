@@ -63,6 +63,30 @@ def _validate_quiz(parsed: dict, require_source_text: bool) -> None:
         raise ValueError(f"correct_index must be int in [0, 3], got {parsed['correct_index']!r}")
 
 
+_LEVEL_HINT = {
+    "ja": (
+        "Target JLPT N3 to N2 vocabulary (intermediate to upper-intermediate). "
+        "Do NOT exceed N2 difficulty. "
+        "Idioms (慣用句), proverbs, and colloquial expressions are welcome — "
+        "BUT prefer ones commonly used in daily Japanese conversation; "
+        "avoid rare, literary, archaic, or highly technical expressions."
+    ),
+    "en": (
+        "Target Eiken Pre-1 to IELTS 7.0 vocabulary (upper-intermediate to advanced). "
+        "Idioms and colloquial expressions are welcome — "
+        "BUT prefer ones commonly used in daily English conversation; "
+        "avoid rare, literary, archaic, or highly technical expressions."
+    ),
+}
+
+
+def _level_hint(target_lang: str) -> str:
+    return _LEVEL_HINT.get(
+        target_lang,
+        "Target a common, intermediate-level vocabulary item used in daily conversation.",
+    )
+
+
 def _build_review_prompt(target_lang: str, explanation_lang: str) -> str:
     target_name, explanation_name = _lang_names(target_lang, explanation_lang)
     return f"""You are a {target_name} language quiz creator for {explanation_name} speakers.
@@ -98,11 +122,12 @@ def _build_new_prompt(
     target_name, explanation_name = _lang_names(target_lang, explanation_lang)
 
     if history:
-        history_section = "Learner's recent study history (sample):\n" + ", ".join(history)
-        level_hint = "Pick a NEW word at a similar level to these history items."
+        history_section = (
+            "Learner's recent study history (for topical context only — NOT a level guide):\n"
+            + ", ".join(history)
+        )
     else:
         history_section = "Learner has no study history yet."
-        level_hint = "Pick a CEFR A1-A2 level common everyday word."
 
     if exclusion_list:
         exclusion_section = (
@@ -121,8 +146,6 @@ Pick ONE NEW {target_name} word the learner likely hasn't studied yet, then crea
 
 {exclusion_section}
 
-{level_hint}
-
 Return a JSON object with this exact structure:
 
 {{
@@ -135,6 +158,7 @@ Return a JSON object with this exact structure:
 
 Rules:
 - The chosen source_text MUST be different from every forbidden word listed above.
+- {_level_hint(target_lang)}
 - The question_text MUST quote source_text by name and ask for its meaning. NEVER phrase it as "which word means X" or any reverse direction; source_text is shown in the embed description, so the reverse direction would reveal the answer.
 - All 4 choices are meanings in {explanation_name}. NEVER include a {target_name} word as a choice.
 - Distractors should be confusable but clearly wrong.
@@ -155,11 +179,12 @@ def _build_new_batch_prompt(
     target_name, explanation_name = _lang_names(target_lang, explanation_lang)
 
     if history:
-        history_section = "Learner's recent study history (sample):\n" + ", ".join(history)
-        level_hint = "Pick NEW words at a similar level to these history items."
+        history_section = (
+            "Learner's recent study history (for topical context only — NOT a level guide):\n"
+            + ", ".join(history)
+        )
     else:
         history_section = "Learner has no study history yet."
-        level_hint = "Pick CEFR A1-A2 level common everyday words."
 
     if exclusion_list:
         exclusion_section = (
@@ -178,8 +203,6 @@ Pick {count} DISTINCT NEW {target_name} words the learner likely hasn't studied 
 
 {exclusion_section}
 
-{level_hint}
-
 Return a JSON array of exactly {count} objects, each with this exact structure:
 
 [
@@ -195,6 +218,7 @@ Return a JSON array of exactly {count} objects, each with this exact structure:
 Rules:
 - The {count} source_text values MUST all be different from each other.
 - Every source_text MUST be different from every forbidden word listed above.
+- {_level_hint(target_lang)}
 - Each question_text MUST quote its source_text by name and ask for its meaning. NEVER phrase it as "which word means X" or any reverse direction; source_text is shown in the embed description, so the reverse direction would reveal the answer.
 - All 4 choices in each quiz are meanings in {explanation_name}. NEVER include a {target_name} word as a choice.
 - Distractors should be confusable but clearly wrong.

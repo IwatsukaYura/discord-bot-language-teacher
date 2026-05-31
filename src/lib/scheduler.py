@@ -26,14 +26,14 @@ def setup_weekly_scheduler(
     channel_id = int(channel_id_str)
     scheduler.add_job(
         weekly.post_weekly_reports,
-        CronTrigger(day_of_week="sun", hour=21, minute=0, timezone="Asia/Tokyo"),
+        CronTrigger(day_of_week="sat", hour=9, minute=0, timezone="Asia/Tokyo"),
         args=[client, channel_id, bot_config.target_lang, bot_config.learner_name],
         id="weekly_report",
         replace_existing=True,
     )
     scheduler.start()
     logger.info(
-        "Weekly report scheduler started (Sunday 21:00 JST) for %s",
+        "Weekly report scheduler started (Saturday 09:00 JST) for %s",
         bot_config.learner_name,
     )
 

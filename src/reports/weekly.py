@@ -1,3 +1,5 @@
+import csv
+import io
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -5,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import discord
 
-from db import query_log
+from db import query_log, quiz_log
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +15,36 @@ JST = ZoneInfo("Asia/Tokyo")
 
 _MAX_ITEMS_PER_SECTION = 50
 _EMBED_FIELD_MAX = 1024
+
+_ANKI_DECK_LABEL = {
+    "en": "Language Teacher EN",
+    "ja": "Language Teacher JA",
+}
+
+
+def build_weekly_anki_csv(
+    word_items: list[dict],
+    target_lang: str,
+    start: datetime,
+) -> str:
+    deck_label = _ANKI_DECK_LABEL.get(target_lang, "Language Teacher")
+    deck_name = f"{deck_label} ({start.strftime('%Y-%m-%d')})"
+
+    buf = io.StringIO()
+    buf.write("#separator:Comma\n")
+    buf.write("#html:false\n")
+    buf.write("#columns:word,reading,meaning\n")
+    buf.write(f"#deck:{deck_name}\n")
+
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
+    for item in word_items:
+        writer.writerow([
+            item.get("text", ""),
+            item.get("reading", ""),
+            item.get("summary", ""),
+        ])
+
+    return buf.getvalue()
 
 
 def build_weekly_summary(logs: list[dict]) -> dict[str, dict[str, list[dict]]]:
@@ -47,12 +79,13 @@ def build_weekly_summary(logs: list[dict]) -> dict[str, dict[str, list[dict]]]:
     }
 
 
-def get_current_week_range(now: datetime) -> tuple[datetime, datetime]:
-    days_since_monday = now.weekday()
-    monday = (now - timedelta(days=days_since_monday)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    return monday, now
+def get_report_period(now: datetime) -> tuple[datetime, datetime]:
+    """週次レポートの集計期間: 発火時点から遡る 7 日間 (rolling window)。
+
+    例) 土曜09:00 発火 → 前週土曜09:00 〜 当週土曜09:00 の 7 日間。
+    DB クエリは半開区間 [start, end) で行うため、終端は now (=次回発火直前) としない。
+    """
+    return now - timedelta(days=7), now
 
 
 def _format_count_suffix(count: int) -> str:
@@ -97,12 +130,50 @@ _SECTION_CONFIG = [
 ]
 
 
+def _add_dashboard_fields(
+    embed: discord.Embed,
+    kind_counts: dict[str, int],
+    active_days: int,
+    total_days: int,
+    quiz_stats: tuple[int, int],
+) -> None:
+    total = sum(kind_counts.values())
+    word = kind_counts.get("word", 0)
+    sentence = kind_counts.get("sentence", 0)
+    grammar = kind_counts.get("grammar", 0)
+    embed.add_field(
+        name="📊 質問数",
+        value=f"**{total}** 件\n単語 {word} / 文章 {sentence} / 文法 {grammar}",
+        inline=True,
+    )
+    embed.add_field(
+        name="📅 学習日数",
+        value=f"**{active_days}** / {total_days} 日",
+        inline=True,
+    )
+    answered, correct = quiz_stats
+    if answered == 0:
+        quiz_value = "未実施"
+    else:
+        accuracy = round(correct / answered * 100)
+        quiz_value = f"**{accuracy}%** ({answered} 問)"
+    embed.add_field(
+        name="🧪 クイズ正解率",
+        value=quiz_value,
+        inline=True,
+    )
+
+
 def build_weekly_embed(
     learner_name: str,
     target_lang: str,
     kind_summary: dict[str, list[dict]],
     start: datetime,
     end: datetime,
+    kind_counts: dict[str, int] | None = None,
+    active_days: int = 0,
+    total_days: int = 7,
+    quiz_stats: tuple[int, int] = (0, 0),
 ) -> discord.Embed:
     direction = "EN → JA" if target_lang == "en" else "JA → EN"
     label = "英語学習" if target_lang == "en" else "日本語学習"
@@ -110,10 +181,13 @@ def build_weekly_embed(
     date_str = f"{start.strftime('%Y-%m-%d')} 〜 {end.strftime('%Y-%m-%d')}"
 
     embed = discord.Embed(
-        title="📚 今週の学習サマリ",
+        title="📚 今週の学習レポート",
         description=f"**{learner_name}** / {label} ({direction})\n{date_str}",
         color=color,
     )
+
+    if kind_counts is not None:
+        _add_dashboard_fields(embed, kind_counts, active_days, total_days, quiz_stats)
 
     for kind, header_label, unit, formatter in _SECTION_CONFIG:
         items = kind_summary.get(kind, [])
@@ -121,8 +195,12 @@ def build_weekly_embed(
             continue
         shown = items[:_MAX_ITEMS_PER_SECTION]
         lines = [formatter(item) for item in shown]
-        if len(items) > _MAX_ITEMS_PER_SECTION:
-            lines.append(f"… (他 {len(items) - _MAX_ITEMS_PER_SECTION} 件)")
+        overflow = len(items) - _MAX_ITEMS_PER_SECTION
+        if overflow > 0:
+            if kind == "word":
+                lines.append(f"… (他 {overflow} 件 — 全件はCSVをダウンロード)")
+            else:
+                lines.append(f"… (他 {overflow} 件)")
         embed.add_field(
             name=f"{header_label} ({len(items)} {unit})",
             value=_truncate_field("\n".join(lines)),
@@ -145,7 +223,7 @@ async def post_weekly_reports(
     if db_path is None:
         db_path = query_log.DEFAULT_DB_PATH
 
-    start, end = get_current_week_range(now)
+    start, end = get_report_period(now)
     logs = query_log.get_logs_in_range(start, end, db_path=db_path)
     summary = build_weekly_summary(logs)
 
@@ -154,7 +232,33 @@ async def post_weekly_reports(
         logger.info("No activity this week for %s; skipping report", target_lang)
         return
 
+    kind_counts = query_log.count_queries_by_kind_in_range(
+        target_lang, start, end, db_path=db_path
+    )
+    active_days = query_log.count_active_days_in_range(
+        target_lang, start, end, db_path=db_path
+    )
+    quiz_stats = quiz_log.get_accuracy_in_range(
+        target_lang, start, end, db_path=db_path
+    )
+    # rolling 7-day window: (end - start) は厳密に 7 日。
+    total_days = (end - start).days
+
     channel = client.get_channel(channel_id) or await client.fetch_channel(channel_id)
-    embed = build_weekly_embed(learner_name, target_lang, kind_summary, start, end)
-    await channel.send(embed=embed)
+    embed = build_weekly_embed(
+        learner_name=learner_name,
+        target_lang=target_lang,
+        kind_summary=kind_summary,
+        start=start,
+        end=end,
+        kind_counts=kind_counts,
+        active_days=active_days,
+        total_days=total_days,
+        quiz_stats=quiz_stats,
+    )
+    # Late import: weekly_view imports from this module, avoid circular dependency.
+    from reports.weekly_view import WeeklyCsvView
+
+    view = WeeklyCsvView(target_lang=target_lang, start=start)
+    await channel.send(embed=embed, view=view)
     logger.info("Posted weekly report for %s (%s)", learner_name, target_lang)

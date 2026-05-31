@@ -279,3 +279,103 @@ class TestGetLogsInRange:
 
         kinds = [r["kind"] for r in results]
         assert kinds == ["word", "sentence", "grammar"]
+
+
+class TestCountQueriesByKindInRange:
+    def test_returns_counts_grouped_by_kind(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        query_log.init_db(db_path)
+        _insert_raw(db_path, "word", "en", "1", "a", "apple", "x",
+                    "2026-05-15T10:00:00+09:00")
+        _insert_raw(db_path, "word", "en", "1", "a", "banana", "y",
+                    "2026-05-15T11:00:00+09:00")
+        _insert_raw(db_path, "sentence", "en", "1", "a", "Hello", "z",
+                    "2026-05-15T12:00:00+09:00")
+
+        counts = query_log.count_queries_by_kind_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-16T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert counts == {"word": 2, "sentence": 1}
+
+    def test_excludes_other_target_lang(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        query_log.init_db(db_path)
+        _insert_raw(db_path, "word", "en", "1", "a", "apple", "x",
+                    "2026-05-15T10:00:00+09:00")
+        _insert_raw(db_path, "word", "ja", "1", "a", "視察", "y",
+                    "2026-05-15T11:00:00+09:00")
+
+        counts = query_log.count_queries_by_kind_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-16T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert counts == {"word": 1}
+
+    def test_returns_empty_dict_when_no_records(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        query_log.init_db(db_path)
+
+        counts = query_log.count_queries_by_kind_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-16T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert counts == {}
+
+
+class TestCountActiveDaysInRange:
+    def test_counts_distinct_calendar_days(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        query_log.init_db(db_path)
+        _insert_raw(db_path, "word", "en", "1", "a", "apple", "x",
+                    "2026-05-15T10:00:00+09:00")
+        _insert_raw(db_path, "word", "en", "1", "a", "banana", "y",
+                    "2026-05-15T20:00:00+09:00")
+        _insert_raw(db_path, "word", "en", "1", "a", "cherry", "z",
+                    "2026-05-17T10:00:00+09:00")
+
+        active = query_log.count_active_days_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-18T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert active == 2
+
+    def test_returns_zero_when_no_records(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        query_log.init_db(db_path)
+
+        active = query_log.count_active_days_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-16T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert active == 0
+
+    def test_excludes_other_target_lang(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        query_log.init_db(db_path)
+        _insert_raw(db_path, "word", "ja", "1", "a", "視察", "y",
+                    "2026-05-15T10:00:00+09:00")
+
+        active = query_log.count_active_days_in_range(
+            target_lang="en",
+            start=datetime.fromisoformat("2026-05-14T00:00:00+09:00"),
+            end=datetime.fromisoformat("2026-05-16T00:00:00+09:00"),
+            db_path=db_path,
+        )
+
+        assert active == 0

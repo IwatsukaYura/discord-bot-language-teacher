@@ -167,3 +167,98 @@ class TestGenerateNewQuizBatch:
 
         assert [q["source_text"] for q in result] == ["a"]
         assert fake.calls == 1
+
+
+class TestBuildNewPromptConstraints:
+    def test_ja_prompt_specifies_jlpt_level(self):
+        prompt = quiz_handler._build_new_prompt(
+            target_lang="ja", explanation_lang="en",
+            history=[], exclusion_list=[],
+        )
+        assert "JLPT" in prompt
+        assert "N2" in prompt
+
+    def test_en_prompt_specifies_eiken_and_ielts_level(self):
+        prompt = quiz_handler._build_new_prompt(
+            target_lang="en", explanation_lang="ja",
+            history=[], exclusion_list=[],
+        )
+        assert "Eiken" in prompt
+        assert "IELTS" in prompt
+
+    def test_ja_prompt_welcomes_idioms_but_prefers_daily_use(self):
+        prompt = quiz_handler._build_new_prompt(
+            target_lang="ja", explanation_lang="en",
+            history=[], exclusion_list=[],
+        )
+        # Idioms are allowed (not forbidden)
+        assert "慣用句" in prompt
+        assert "welcome" in prompt.lower()
+        # But should prefer daily/common ones and avoid rare/literary/archaic
+        assert "daily" in prompt.lower()
+        assert "rare" in prompt.lower()
+
+    def test_en_prompt_welcomes_idioms_but_prefers_daily_use(self):
+        prompt = quiz_handler._build_new_prompt(
+            target_lang="en", explanation_lang="ja",
+            history=[], exclusion_list=[],
+        )
+        assert "idioms" in prompt.lower()
+        assert "welcome" in prompt.lower()
+        assert "daily" in prompt.lower()
+        assert "rare" in prompt.lower()
+
+    def test_prompt_no_longer_forbids_idioms(self):
+        # Old behavior banned all idioms — must not appear in current prompt
+        for lang in ("ja", "en"):
+            prompt = quiz_handler._build_new_prompt(
+                target_lang=lang, explanation_lang="en" if lang == "ja" else "ja",
+                history=[], exclusion_list=[],
+            )
+            assert "NEVER pick idioms" not in prompt
+            assert "BAD examples" not in prompt
+            assert "SINGLE content word" not in prompt
+
+    def test_history_is_labeled_topical_not_level_guide(self):
+        prompt = quiz_handler._build_new_prompt(
+            target_lang="ja", explanation_lang="en",
+            history=["挨拶", "天気"], exclusion_list=[],
+        )
+        assert "topical context only" in prompt
+        assert "NOT a level guide" in prompt
+
+    def test_prompt_no_longer_references_cefr_a1_a2(self):
+        for lang in ("ja", "en"):
+            prompt = quiz_handler._build_new_prompt(
+                target_lang=lang, explanation_lang="en" if lang == "ja" else "ja",
+                history=[], exclusion_list=[],
+            )
+            assert "CEFR A1" not in prompt
+            assert "A1-A2" not in prompt
+
+
+class TestBuildNewBatchPromptConstraints:
+    def test_batch_ja_prompt_specifies_jlpt_level(self):
+        prompt = quiz_handler._build_new_batch_prompt(
+            target_lang="ja", explanation_lang="en",
+            history=[], exclusion_list=[], count=3,
+        )
+        assert "JLPT" in prompt
+        assert "N2" in prompt
+
+    def test_batch_en_prompt_specifies_eiken_and_ielts(self):
+        prompt = quiz_handler._build_new_batch_prompt(
+            target_lang="en", explanation_lang="ja",
+            history=[], exclusion_list=[], count=3,
+        )
+        assert "Eiken" in prompt
+        assert "IELTS" in prompt
+
+    def test_batch_prompt_welcomes_idioms(self):
+        prompt = quiz_handler._build_new_batch_prompt(
+            target_lang="ja", explanation_lang="en",
+            history=[], exclusion_list=[], count=3,
+        )
+        assert "慣用句" in prompt
+        assert "welcome" in prompt.lower()
+        assert "NEVER pick idioms" not in prompt
