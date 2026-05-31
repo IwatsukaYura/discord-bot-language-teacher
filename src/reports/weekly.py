@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import discord
 
 from db import query_log, quiz_log
+from reports.anki_card import AnkiCard
 
 logger = logging.getLogger(__name__)
 
@@ -23,26 +24,28 @@ _ANKI_DECK_LABEL = {
 
 
 def build_weekly_anki_csv(
-    word_items: list[dict],
+    cards: list[AnkiCard],
     target_lang: str,
     start: datetime,
 ) -> str:
+    """Anki Basic note type にそのまま import 可能な 2列 CSV を返す。
+
+    Front 列に target_lang の語 (Mode A の reading は「単語【よみ】」で埋め込み済み)、
+    Back 列に explanation_lang の意味。
+    """
     deck_label = _ANKI_DECK_LABEL.get(target_lang, "Language Teacher")
     deck_name = f"{deck_label} ({start.strftime('%Y-%m-%d')})"
 
     buf = io.StringIO()
     buf.write("#separator:Comma\n")
     buf.write("#html:false\n")
-    buf.write("#columns:word,reading,meaning\n")
+    buf.write("#notetype:Basic\n")
+    buf.write("#columns:Front,Back\n")
     buf.write(f"#deck:{deck_name}\n")
 
     writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
-    for item in word_items:
-        writer.writerow([
-            item.get("text", ""),
-            item.get("reading", ""),
-            item.get("summary", ""),
-        ])
+    for card in cards:
+        writer.writerow([card.front, card.back])
 
     return buf.getvalue()
 

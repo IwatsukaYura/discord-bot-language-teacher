@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 import discord
 
 from db import query_log
-from reports.weekly import build_weekly_anki_csv, build_weekly_summary
+from reports.anki_card import build_anki_cards
+from reports.weekly import build_weekly_anki_csv
 
 logger = logging.getLogger(__name__)
 
@@ -65,16 +66,15 @@ async def handle_weekly_csv_click(
 
     end = start + timedelta(days=7)
     logs = query_log.get_logs_in_range(start, end, db_path=db_path)
-    summary = build_weekly_summary(logs)
-    word_items = summary.get(target_lang, {}).get("word", [])
+    cards = build_anki_cards(logs, target_lang)
 
-    if not word_items:
+    if not cards:
         await interaction.response.send_message(
             "この週には単語の記録がありませんでした。", ephemeral=True
         )
         return
 
-    csv_text = build_weekly_anki_csv(word_items, target_lang, start)
+    csv_text = build_weekly_anki_csv(cards, target_lang, start)
     buf = io.BytesIO(csv_text.encode("utf-8"))
     filename = f"weekly-words-{target_lang}-{start.strftime(_DATE_FORMAT)}.csv"
     await interaction.response.send_message(
@@ -82,6 +82,6 @@ async def handle_weekly_csv_click(
         ephemeral=True,
     )
     logger.info(
-        "Sent weekly CSV (lang=%s, start=%s, items=%d)",
-        target_lang, start.strftime(_DATE_FORMAT), len(word_items),
+        "Sent weekly CSV (lang=%s, start=%s, cards=%d)",
+        target_lang, start.strftime(_DATE_FORMAT), len(cards),
     )
