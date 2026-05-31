@@ -41,7 +41,7 @@ async def _post_for_learner(
     user_id = learner["discord_user_id"]
     target_lang = learner["target_lang"]
 
-    word_history = quiz_log.get_user_word_history(user_id, target_lang, db_path=db_path)
+    word_history = quiz_log.get_studied_target_lang_words(user_id, target_lang, db_path=db_path)
 
     if not word_history:
         logger.info("Learner %s has no word history; posting new-only quiz", learner.get("name"))
@@ -88,7 +88,7 @@ async def post_addon_quizzes(
 
     recent = quiz_log.get_recent_query_history(user_id, target_lang, limit=30, db_path=db_path)
     all_past_quiz = quiz_log.get_all_quiz_source_texts(user_id, target_lang, db_path=db_path)
-    all_words = quiz_log.get_user_word_history(user_id, target_lang, db_path=db_path)
+    all_words = quiz_log.get_studied_target_lang_words(user_id, target_lang, db_path=db_path)
     exclusion = list(set(all_past_quiz + all_words))
 
     quizzes = await quiz_handler.generate_new_quiz_batch(
@@ -138,7 +138,7 @@ async def _post_one(
     else:
         recent = quiz_log.get_recent_query_history(user_id, target_lang, limit=30, db_path=db_path)
         all_past_quiz = quiz_log.get_all_quiz_source_texts(user_id, target_lang, db_path=db_path)
-        all_words = quiz_log.get_user_word_history(user_id, target_lang, db_path=db_path)
+        all_words = quiz_log.get_studied_target_lang_words(user_id, target_lang, db_path=db_path)
         exclusion = list(set(all_past_quiz + all_words))
         quiz_content = await quiz_handler.generate_new_quiz(
             history=recent,

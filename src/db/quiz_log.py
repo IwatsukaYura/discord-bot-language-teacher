@@ -5,6 +5,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from db.query_log import DEFAULT_DB_PATH
+from lib.script import matches_target_lang
+
+# dispatcher._summarize_headwords が " / " で結合する result_summary を分解するための区切り。
+# フォーマットを変える場合は dispatcher 側と合わせて変更する。
+_HEADWORD_SEPARATOR = " / "
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -142,19 +147,47 @@ def get_all_quiz_source_texts(
         return [row[0] for row in cursor.fetchall()]
 
 
-def get_user_word_history(
+def get_studied_target_lang_words(
     discord_user_id: str,
     target_lang: str,
     db_path: Path = DEFAULT_DB_PATH,
 ) -> list[str]:
-    """学習者が word kind で過去調べた query_text 一覧(復習候補 + 新出除外用)。query_log 参照。"""
+    """学習者が word kind で過去調べた語のうち、target_lang のスクリプトで書かれたものを返す。
+
+    Mode A (query_text が target_lang script に一致): その query_text を採用。
+    Mode B (不一致: 例 height を JA-bot に問い合わせた): result_summary を _HEADWORD_SEPARATOR
+    で分解し、target_lang script に一致する見出し語(例 高さ / 身長)を採用。
+
+    復習候補と新出除外の両方の用途で使う。重複は排除、出現順は SQL の返却順。
+    """
+    pool: list[str] = []
+    seen: set[str] = set()
+
     with sqlite3.connect(db_path) as conn:
         cursor = conn.execute(
-            "SELECT DISTINCT query_text FROM query_log "
+            "SELECT query_text, result_summary FROM query_log "
             "WHERE discord_user_id = ? AND target_lang = ? AND kind = 'word'",
             (discord_user_id, target_lang),
         )
-        return [row[0] for row in cursor.fetchall()]
+        for query_text, result_summary in cursor.fetchall():
+            if matches_target_lang(query_text, target_lang):
+                if query_text not in seen:
+                    seen.add(query_text)
+                    pool.append(query_text)
+                continue
+            if not result_summary:
+                continue
+            for headword in result_summary.split(_HEADWORD_SEPARATOR):
+                headword = headword.strip()
+                if (
+                    headword
+                    and matches_target_lang(headword, target_lang)
+                    and headword not in seen
+                ):
+                    seen.add(headword)
+                    pool.append(headword)
+
+    return pool
 
 
 def count_unanswered_today(

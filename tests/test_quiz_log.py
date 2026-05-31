@@ -3,9 +3,28 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from db import quiz_log
+from db import query_log, quiz_log
 
 JST = ZoneInfo("Asia/Tokyo")
+
+
+def _insert_query(
+    db_path: Path,
+    discord_user_id: str,
+    target_lang: str,
+    query_text: str,
+    result_summary: str,
+) -> None:
+    query_log.init_db(db_path)
+    query_log.insert_query_log(
+        kind="word",
+        target_lang=target_lang,
+        discord_user_id=discord_user_id,
+        discord_user_name="alice",
+        query_text=query_text,
+        result_summary=result_summary,
+        db_path=db_path,
+    )
 
 
 def _insert_quiz_raw(
@@ -222,3 +241,116 @@ class TestGetAccuracyInRange:
 
         assert answered == 0
         assert correct == 0
+
+
+class TestGetStudiedTargetLangWords:
+    def test_mode_a_japanese_query_returns_query_text(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "ja", "視察", "inspection")
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert words == ["視察"]
+
+    def test_mode_b_english_query_extracts_translations_from_summary(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "ja", "height", "高さ / 身長")
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert words == ["高さ", "身長"]
+
+    def test_mode_b_single_headword_summary(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "ja", "apple", "りんご")
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert words == ["りんご"]
+
+    def test_mode_b_empty_summary_yields_nothing(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "ja", "height", "")
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert words == []
+
+    def test_mode_b_summary_with_only_english_yields_nothing(self, tmp_path):
+        # Defensive: LLM mistakenly returned English in result_summary for a JA bot
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "ja", "height", "tall / high")
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert words == []
+
+    def test_en_target_mode_a_keeps_english_query(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "en", "apple", "りんご")
+
+        words = quiz_log.get_studied_target_lang_words("1", "en", db_path=db_path)
+        assert words == ["apple"]
+
+    def test_en_target_mode_b_extracts_english_from_summary(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "en", "視察", "inspection / observation")
+
+        words = quiz_log.get_studied_target_lang_words("1", "en", db_path=db_path)
+        assert words == ["inspection", "observation"]
+
+    def test_combines_mode_a_and_mode_b_rows(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "ja", "視察", "inspection")
+        _insert_query(db_path, "1", "ja", "height", "高さ / 身長")
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert set(words) == {"視察", "高さ", "身長"}
+
+    def test_deduplicates_across_rows(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "ja", "視察", "inspection")
+        _insert_query(db_path, "1", "ja", "視察", "inspection")
+        _insert_query(db_path, "1", "ja", "inspection", "視察")
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert words == ["視察"]
+
+    def test_excludes_other_users(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "ja", "視察", "inspection")
+        _insert_query(db_path, "2", "ja", "高さ", "height")
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert words == ["視察"]
+
+    def test_excludes_other_target_langs(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        _insert_query(db_path, "1", "ja", "視察", "inspection")
+        _insert_query(db_path, "1", "en", "apple", "りんご")
+
+        ja_words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        en_words = quiz_log.get_studied_target_lang_words("1", "en", db_path=db_path)
+        assert ja_words == ["視察"]
+        assert en_words == ["apple"]
+
+    def test_excludes_non_word_kinds(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        query_log.init_db(db_path)
+        query_log.insert_query_log(
+            kind="sentence", target_lang="ja",
+            discord_user_id="1", discord_user_name="a",
+            query_text="これは何ですか", result_summary="What is this?",
+            db_path=db_path,
+        )
+        query_log.insert_query_log(
+            kind="grammar", target_lang="ja",
+            discord_user_id="1", discord_user_name="a",
+            query_text="What does 〜てしまう mean?", result_summary="〜てしまう",
+            db_path=db_path,
+        )
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert words == []
+
+    def test_returns_empty_for_user_with_no_history(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        query_log.init_db(db_path)
+
+        words = quiz_log.get_studied_target_lang_words("1", "ja", db_path=db_path)
+        assert words == []
