@@ -9,6 +9,7 @@ dependencies = [
     "google-genai>=1.0",
     "apscheduler>=3.10",
     "openai>=1.0",
+    "gtts>=2.5.4",
 ]
 
 [dependency-groups]

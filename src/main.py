@@ -107,13 +107,13 @@ async def on_message(message: discord.Message):
 
     async with message.channel.typing():
         try:
-            embed = await dispatch(
+            embed, files = await dispatch(
                 user_text=user_text,
                 user_id=str(message.author.id),
                 user_name=message.author.display_name,
                 bot_config=_bot_config,
             )
-            await message.channel.send(embed=embed)
+            await message.channel.send(embed=embed, files=files)
         except Exception as e:
             logger.exception("Failed to handle query")
             await message.channel.send(f"ごめん、エラーが出ました: `{type(e).__name__}: {e}`")
