@@ -11,29 +11,34 @@ The bot you mention determines who the audience is. The other bot is for the oth
 
 ## Features
 
-- **Word lookup** — translation, part of speech, meaning, usage notes, and two example sentences. For Japanese headwords containing kanji, the hiragana reading (furigana) is included in the response title (e.g. `📘 視察【しさつ】(noun / suru-verb)`).
+- **Word lookup** — one or more senses per response. Each sense has a target-language headword, part of speech, translations, and two example sentences. The Japanese-teacher bot adds hiragana readings (furigana) to any headword containing kanji (e.g. `視察【しさつ】 (noun)`).
+- **Pronunciation audio** — each word response attaches a gTTS-synthesized mp3 per unique headword, read in the target language (`en` or `ja`).
 - **Reverse lookup** — submit a word/sentence in your own language, the bot picks the natural equivalent in the language you're studying and uses that as the headword (with furigana for kanji where applicable). The English-teacher bot always explains in Japanese; the Japanese-teacher bot always explains in English.
 - **Sentence explanation** — natural translation, optional literal translation, and key points.
 - **Grammar explanation** — topic identification, explanation, examples, and related patterns.
-- **Automatic input classification** — Gemini decides whether the user input is a word, a sentence, or a grammar question; no slash commands required.
+- **Automatic input classification** — the LLM decides whether the user input is a word, a sentence, or a grammar question; no slash commands required.
 - **Dictionary links** — each word response links to Cambridge Dictionary (English-teacher bot) or Jisho (Japanese-teacher bot).
-- **Daily review quiz** — every morning at 08:00 JST, each bot posts a 4-choice multiple-choice quiz on the words the learner has previously looked up (review) and one brand-new word at a similar level.
-- **Weekly summary report** — every Sunday at 21:00 JST, each bot posts a summary of its learner's past-week activity.
+- **Model footer** — every response footer shows the actual model that answered (`via {model}`); when the OpenRouter fallback fires, the provider is shown too.
+- **LLM fallback chain** — Gemini primary (`gemini-3.1-flash-lite`) → Gemini secondary (`gemini-3.5-flash`) → optional OpenRouter (configurable model). 404 / 429 / 5xx automatically fall through to the next backend.
+- **Daily quiz** — every morning at 08:00 JST, each bot posts a 4-choice multiple-choice quiz: one review item from the learner's past lookups + one brand-new word at a similar level. Bonus quizzes (+1/+2/+3) can be requested once per day after answering everything.
+- **Weekly report** — every Saturday at 09:00 JST, each bot posts a 7-day rolling summary with a dashboard (question count / active days / quiz accuracy) and per-kind sections.
+- **Anki CSV export** — the weekly report carries a persistent button that exports that week's words as an Anki Basic CSV (Front = target-language headword with optional `【reading】`, Back = translation). Mode A / Mode B lookups are both flattened so the target language always lives on the Front side.
 
 ## How it works
 
 1. The bot listens for messages where it is mentioned.
-2. The router calls Gemini to classify the input as `word`, `sentence`, or `grammar`.
-3. The matching handler queries Gemini with a JSON-structured prompt and returns a parsed dict. `target_lang` and `explanation_lang` are fixed by `BOT_ROLE` (not inferred from the input).
-4. The result is rendered into a Discord embed (blue for English target, red for Japanese target).
-5. The query is logged to a local SQLite database, shared between both bots.
+2. The router calls the LLM (via the fallback chain) to classify the input as `word`, `sentence`, or `grammar`.
+3. The matching handler calls the LLM again with a JSON-structured prompt and parses the response. `target_lang` and `explanation_lang` are fixed by `BOT_ROLE` (not inferred from the input).
+4. The result is rendered into a Discord embed (blue for English target, red for Japanese target). For `word`, a gTTS-synthesized mp3 per unique headword is attached alongside the embed.
+5. The query is logged to a local SQLite database shared between both bots, with the `reading` column populated when the headword/source text contains kanji.
 
 ## Requirements
 
-- Python 3.13+
+- Python 3.11+
 - [uv](https://github.com/astral-sh/uv) for dependency management
 - Two Discord bot tokens (one per role) — create both via the [Discord Developer Portal](https://discord.com/developers/applications)
 - A Gemini API key ([Google AI Studio](https://aistudio.google.com/app/apikey))
+- (Optional) An OpenRouter API key + model name for the final fallback hop ([OpenRouter](https://openrouter.ai/))
 - Channel IDs for the quiz and weekly report
 
 ## Setup
@@ -62,17 +67,24 @@ The bot you mention determines who the audience is. The other bot is for the oth
 
    Required variables in each file:
 
-   | Variable                | Description                                                  |
-   | ----------------------- | ------------------------------------------------------------ |
-   | `BOT_ROLE`              | `en_teacher` or `ja_teacher`                                 |
-   | `DISCORD_BOT_TOKEN`     | Discord bot token (different per role)                       |
-   | `GEMINI_API_KEY`        | Gemini API key                                               |
-   | `REPORT_CHANNEL_ID`     | Channel for this bot's weekly report (different per role)    |
-   | `QUIZ_CHANNEL_ID`       | Channel for this bot's daily quiz (different per role)       |
-   | `EN_LEARNER_NAME`       | Display name of the English-learner persona                  |
-   | `EN_LEARNER_DISCORD_ID` | Discord user ID of the English learner                       |
-   | `JA_LEARNER_NAME`       | Display name of the Japanese-learner persona                 |
-   | `JA_LEARNER_DISCORD_ID` | Discord user ID of the Japanese learner                      |
+   | Variable                | Description                                                                                       |
+   | ----------------------- | ------------------------------------------------------------------------------------------------- |
+   | `BOT_ROLE`              | `en_teacher` or `ja_teacher`                                                                      |
+   | `DISCORD_BOT_TOKEN`     | Discord bot token (different per role)                                                            |
+   | `GEMINI_API_KEY`        | Gemini API key                                                                                    |
+   | `REPORT_CHANNEL_ID`     | Channel for this bot's weekly report (different per role)                                         |
+   | `QUIZ_CHANNEL_ID`       | Channel for this bot's daily quiz (different per role)                                            |
+   | `EN_LEARNER_NAME`       | Display name of the English-learner persona                                                       |
+   | `EN_LEARNER_DISCORD_ID` | Discord user ID of the English learner                                                            |
+   | `JA_LEARNER_NAME`       | Display name of the Japanese-learner persona                                                      |
+   | `JA_LEARNER_DISCORD_ID` | Discord user ID of the Japanese learner                                                           |
+
+   Optional (set both or neither — partial configuration disables the OpenRouter fallback):
+
+   | Variable             | Description                                                                                       |
+   | -------------------- | ------------------------------------------------------------------------------------------------- |
+   | `OPENROUTER_API_KEY` | OpenRouter API key (used after Gemini primary + secondary are exhausted)                          |
+   | `OPENROUTER_MODEL`   | OpenRouter model slug (e.g. `qwen/qwen3-next-80b-a3b-instruct:free`)                              |
 
    Each bot reads only the learner pair that matches its `BOT_ROLE`, but both env files hold both pairs so that the other identity is consistent.
 
@@ -120,7 +132,11 @@ See [docs/aws-infrastructure.md](docs/aws-infrastructure.md) for the system diag
 
 Each bot posts only its own learner's summary to its own `REPORT_CHANNEL_ID`. The English-teacher bot and the Japanese-teacher bot write to **different channels** so the two learners' reports don't interleave. dev and prod also use different channels (often different Discord servers).
 
-Every Sunday at 21:00 JST, each bot posts its own learner's summary to its `REPORT_CHANNEL_ID`. The report groups queries by kind (word / sentence / grammar) and shows each item with its result and occurrence count.
+Every Saturday at 09:00 JST, each bot posts its own learner's summary to its `REPORT_CHANNEL_ID`. The window is a **rolling 7 days** (now − 7d → now), so the report always covers the week ending at the firing moment. The embed shows:
+
+- A dashboard row: question count + per-kind breakdown / active days / quiz accuracy.
+- Per-kind sections (word / sentence / grammar). Empty sections are omitted; sections over 50 items are truncated with a remainder note.
+- A persistent button **📥 単語をCSVでエクスポート（Anki用）** that exports that week's words as an Anki Basic CSV (ephemeral reply). Front = the target-language headword (with `【reading】` for kanji), Back = the translation.
 
 Manual run (specify the env file for the bot you want to run it as):
 
@@ -132,6 +148,8 @@ uv run python src/scripts/run_report.py
 
 Every morning at 08:00 JST, each bot posts a daily quiz to **its own** `QUIZ_CHANNEL_ID`, mentioning its learner. The English-teacher bot posts to the English quiz channel and the Japanese-teacher bot posts to the Japanese quiz channel, so the two learners' problems don't interleave. The quiz includes one review item from the learner's previous lookups (excluded for 14 days after delivery) and one new word at a similar level.
 
+After the learner answers everything for the day, the bot offers a one-time bonus prompt (**🔥 もっとやる? / 🔥 Want more?**) with `+1` / `+2` / `+3` / なし buttons. The chosen count of new questions is generated in a single batched LLM call. Only the learner can use the bonus, and the slot resets the next JST day.
+
 ## Testing
 
 The project uses pytest with `pytest-asyncio`:
@@ -140,7 +158,7 @@ The project uses pytest with `pytest-asyncio`:
 uv run pytest
 ```
 
-All tests are offline (Gemini calls are mocked via `monkeypatch`).
+All tests are offline (LLM backends and gTTS are mocked via `monkeypatch`).
 
 ## Project Structure
 
@@ -153,22 +171,33 @@ src/
 │   ├── word_handler.py        # Word lookup (incl. reverse lookup + furigana)
 │   ├── sentence_handler.py    # Sentence translation (incl. reverse lookup)
 │   ├── grammar_handler.py     # Grammar topic explanation
-│   └── quiz_handler.py        # Quiz generation (review / new)
+│   └── quiz_handler.py        # Quiz generation (review / new / batch)
+├── lib/
+│   ├── dispatcher.py          # Routes incoming text to handlers, attaches TTS audio
+│   ├── embeds.py              # Word / sentence / grammar embed builders + model footer
+│   ├── scheduler.py           # APScheduler wiring (daily quiz, weekly report)
+│   ├── script.py              # Language-script detection (en / ja)
+│   └── tts.py                 # gTTS-based mp3 synthesis for word headwords
 ├── llm/
-│   └── gemini_client.py       # Gemini API wrapper
+│   ├── client.py              # generate() entry + fallback chain
+│   ├── errors.py              # LLMError / LLMRateLimitError
+│   ├── gemini_backend.py      # Gemini backend (primary + secondary models)
+│   └── openrouter_backend.py  # OpenRouter backend (optional final fallback)
 ├── db/
-│   ├── query_log.py           # SQLite query log + schema migration
-│   └── quiz_log.py            # SQLite quiz log
+│   ├── query_log.py           # SQLite query log + reading column migration
+│   └── quiz_log.py            # SQLite quiz log + addon usage table
 ├── quiz/
-│   ├── daily.py               # Daily quiz posting & answer handling
-│   └── poster.py              # Quiz embed + Discord View
+│   ├── daily.py               # Daily + bonus quiz posting and answer handling
+│   └── poster.py              # Quiz embed + Discord button views
 ├── reports/
-│   └── weekly.py              # Weekly report aggregation and embed
+│   ├── weekly.py              # Weekly report aggregation + embed + Anki CSV builder
+│   ├── weekly_view.py         # Persistent Anki CSV export button
+│   └── anki_card.py           # query_log rows → Anki Basic Front/Back cards
 └── scripts/
     ├── run_report.py          # Standalone script for manual report runs
     └── try_quiz.py            # Local quiz generation sanity check
 
-tests/                         # pytest suite (mocked Gemini)
+tests/                         # pytest suite (mocked LLM backends)
 ```
 
 ## License

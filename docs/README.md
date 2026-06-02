@@ -8,6 +8,6 @@
 | [aws-infrastructure.md](./aws-infrastructure.md) | dev/prod 環境分離の AWS インフラ設計                                                   |
 
 - ドキュメントバージョン: 1.0
-- 最終更新: 2026-05-29
+- 最終更新: 2026-06-02
 - ステータス: 実装中
 - 対象プロダクト: Language Teacher Discord Bots(英語先生Bot / 日本語先生Bot)
