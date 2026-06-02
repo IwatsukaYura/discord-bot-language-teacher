@@ -4,6 +4,7 @@ import time
 
 import discord
 
+from audio import playback
 from config import BotConfig
 from db import query_log
 from handlers import grammar_handler, router, sentence_handler, word_handler
@@ -18,14 +19,19 @@ def extract_user_text(content: str) -> str:
     return _MENTION_PATTERN.sub("", content).strip()
 
 
-def _summarize_headwords(senses: list[dict]) -> str:
-    """query_log.result_summary 用: 全 sense の headword を ' / ' 区切りで連結(重複排除)。"""
+def _extract_unique_headwords(senses: list[dict]) -> list[str]:
+    """senses から初出順を保ったまま重複を除いた headword 列を返す。"""
     seen: list[str] = []
     for sense in senses:
         h = sense["headword"]
         if h not in seen:
             seen.append(h)
-    return " / ".join(seen)
+    return seen
+
+
+def _summarize_headwords(senses: list[dict]) -> str:
+    """query_log.result_summary 用: ユニーク headword を ' / ' 区切りで連結。"""
+    return " / ".join(_extract_unique_headwords(senses))
 
 
 async def dispatch(
@@ -33,7 +39,7 @@ async def dispatch(
     user_id: str,
     user_name: str,
     bot_config: BotConfig,
-) -> discord.Embed:
+) -> tuple[discord.Embed, discord.ui.View | None]:
     t_start = time.perf_counter()
     input_type = await router.classify_input(user_text)
     classify_sec = time.perf_counter() - t_start
@@ -63,7 +69,10 @@ async def dispatch(
                 )
             except Exception as e:
                 logger.warning("Failed to log word query: %s", e)
-            return build_word_embed(result, target_lang, explanation_lang)
+            embed = build_word_embed(result, target_lang, explanation_lang)
+            headwords = _extract_unique_headwords(result["senses"])
+            view = playback.build_audio_view(headwords, target_lang)
+            return embed, view
 
         if input_type == "sentence":
             result = await sentence_handler.handle_sentence(
@@ -83,7 +92,7 @@ async def dispatch(
                 )
             except Exception as e:
                 logger.warning("Failed to log sentence query: %s", e)
-            return build_sentence_embed(result, target_lang, explanation_lang)
+            return build_sentence_embed(result, target_lang, explanation_lang), None
 
         result = await grammar_handler.handle_grammar(
             user_text,
@@ -101,7 +110,7 @@ async def dispatch(
             )
         except Exception as e:
             logger.warning("Failed to log grammar query: %s", e)
-        return build_grammar_embed(result)
+        return build_grammar_embed(result), None
     finally:
         generate_sec = time.perf_counter() - t_gen
         logger.info(

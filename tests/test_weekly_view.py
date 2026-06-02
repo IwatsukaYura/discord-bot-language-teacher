@@ -104,9 +104,11 @@ class TestHandleWeeklyCsvClick:
         # Verify CSV content
         file.fp.seek(0)
         body = file.fp.read().decode("utf-8")
-        assert "#columns:word,reading,meaning" in body
-        assert "apple,,りんご" in body
-        assert "banana,,バナナ" in body
+        assert "#columns:Front,Back" in body
+        assert "#notetype:Basic" in body
+        # Mode A: query_text(EN) matches en script → front=query_text, back=summary
+        assert "apple,りんご" in body
+        assert "banana,バナナ" in body
 
     async def test_replies_with_text_when_no_words(self, tmp_path):
         db_path = tmp_path / "test.db"

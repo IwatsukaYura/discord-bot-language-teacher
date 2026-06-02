@@ -134,85 +134,78 @@ class TestBuildWeeklyAnkiCsv:
         return datetime.fromisoformat("2026-05-25T00:00:00+09:00")
 
     def test_includes_anki_header_lines(self):
+        from reports.anki_card import AnkiCard
         csv_text = weekly.build_weekly_anki_csv(
-            word_items=[],
+            cards=[],
             target_lang="en",
             start=self._start(),
         )
         lines = csv_text.splitlines()
         assert lines[0] == "#separator:Comma"
         assert lines[1] == "#html:false"
-        assert lines[2] == "#columns:word,reading,meaning"
-        assert lines[3] == "#deck:Language Teacher EN (2026-05-25)"
+        assert lines[2] == "#notetype:Basic"
+        assert lines[3] == "#columns:Front,Back"
+        assert lines[4] == "#deck:Language Teacher EN (2026-05-25)"
 
-    def test_writes_three_columns_per_word(self):
-        items = [
-            {"text": "apple", "reading": "", "summary": "りんご", "count": 1},
-            {"text": "視察", "reading": "しさつ", "summary": "inspection", "count": 2},
+    def test_writes_front_back_per_card(self):
+        from reports.anki_card import AnkiCard
+        cards = [
+            AnkiCard(front="apple", back="りんご"),
+            AnkiCard(front="視察【しさつ】", back="inspection"),
         ]
         csv_text = weekly.build_weekly_anki_csv(
-            word_items=items,
+            cards=cards,
             target_lang="ja",
             start=self._start(),
         )
         lines = csv_text.splitlines()
-        assert lines[3] == "#deck:Language Teacher JA (2026-05-25)"
-        assert lines[4] == "apple,,りんご"
-        assert lines[5] == "視察,しさつ,inspection"
+        assert lines[4] == "#deck:Language Teacher JA (2026-05-25)"
+        assert lines[5] == "apple,りんご"
+        assert lines[6] == "視察【しさつ】,inspection"
 
-    def test_quotes_meaning_with_comma(self):
-        items = [
-            {"text": "endeavor", "reading": "", "summary": "努力, 試み", "count": 1},
-        ]
+    def test_quotes_back_with_comma(self):
+        from reports.anki_card import AnkiCard
+        cards = [AnkiCard(front="endeavor", back="努力, 試み")]
         csv_text = weekly.build_weekly_anki_csv(
-            word_items=items,
+            cards=cards,
             target_lang="en",
             start=self._start(),
         )
-        data_line = csv_text.splitlines()[4]
-        assert data_line == 'endeavor,,"努力, 試み"'
+        data_line = csv_text.splitlines()[5]
+        assert data_line == 'endeavor,"努力, 試み"'
 
-    def test_escapes_double_quotes_in_meaning(self):
-        items = [
-            {"text": "scare", "reading": "", "summary": 'say "boo"', "count": 1},
-        ]
+    def test_escapes_double_quotes_in_back(self):
+        from reports.anki_card import AnkiCard
+        cards = [AnkiCard(front="scare", back='say "boo"')]
         csv_text = weekly.build_weekly_anki_csv(
-            word_items=items,
+            cards=cards,
             target_lang="en",
             start=self._start(),
         )
-        data_line = csv_text.splitlines()[4]
-        assert data_line == 'scare,,"say ""boo"""'
+        data_line = csv_text.splitlines()[5]
+        assert data_line == 'scare,"say ""boo"""'
 
-    def test_returns_only_headers_when_no_items(self):
+    def test_returns_only_headers_when_no_cards(self):
         csv_text = weekly.build_weekly_anki_csv(
-            word_items=[],
+            cards=[],
             target_lang="en",
             start=self._start(),
         )
         assert csv_text.splitlines() == [
             "#separator:Comma",
             "#html:false",
-            "#columns:word,reading,meaning",
+            "#notetype:Basic",
+            "#columns:Front,Back",
             "#deck:Language Teacher EN (2026-05-25)",
         ]
 
     def test_unknown_target_lang_falls_back_to_generic_deck(self):
         csv_text = weekly.build_weekly_anki_csv(
-            word_items=[],
+            cards=[],
             target_lang="fr",
             start=self._start(),
         )
-        assert csv_text.splitlines()[3] == "#deck:Language Teacher (2026-05-25)"
-
-    def test_missing_keys_in_item_use_empty_string(self):
-        items = [{"text": "apple"}]
-        csv_text = weekly.build_weekly_anki_csv(
-            word_items=items,
-            target_lang="en",
-            start=self._start(),
-        )
-        assert csv_text.splitlines()[4] == "apple,,"
+        assert csv_text.splitlines()[4] == "#deck:Language Teacher (2026-05-25)"
 
 
 def _insert_raw(db_path: Path, kind: str, target_lang: str, query_text: str,
