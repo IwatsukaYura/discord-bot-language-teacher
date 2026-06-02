@@ -92,9 +92,7 @@ async def dispatch(
                 )
             except Exception as e:
                 logger.warning("Failed to log sentence query: %s", e)
-            embed = build_sentence_embed(result, target_lang, explanation_lang)
-            view = playback.build_sentence_audio_view(target_lang)
-            return embed, view
+            return build_sentence_embed(result, target_lang, explanation_lang), None
 
         result = await grammar_handler.handle_grammar(
             user_text,

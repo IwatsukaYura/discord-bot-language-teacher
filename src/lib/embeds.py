@@ -3,11 +3,6 @@ import discord
 _EMBED_FIELD_MAX = 1024
 _EMBED_TITLE_MAX = 200
 
-# build_sentence_embed が組み立てる title の絵文字プレフィックス。
-# 例: "📝 I went to the park yesterday."
-# playback 側でクリック時に title から source_text を復元するため、ここを唯一の出典とする。
-SENTENCE_TITLE_PREFIX = "📝 "
-
 
 def _truncate(text: str, max_len: int = _EMBED_FIELD_MAX) -> str:
     if len(text) <= max_len:
@@ -76,7 +71,7 @@ def build_word_embed(result: dict, target_lang: str, explanation_lang: str) -> d
 
 def build_sentence_embed(result: dict, target_lang: str, explanation_lang: str) -> discord.Embed:
     source_reading = result.get("source_reading", "")
-    title = f"{SENTENCE_TITLE_PREFIX}{_truncate(result['source_text'], _EMBED_TITLE_MAX)}"
+    title = f"📝 {_truncate(result['source_text'], _EMBED_TITLE_MAX)}"
     embed = discord.Embed(title=title, color=_color_for(target_lang))
 
     if source_reading:
