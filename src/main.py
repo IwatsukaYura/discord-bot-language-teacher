@@ -5,6 +5,10 @@ import discord
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
+from audio.playback import (
+    handle_audio_click,
+    parse_custom_id as parse_audio_custom_id,
+)
 from config import BotConfig, load_bot_config
 from db import query_log, quiz_log
 from lib.dispatcher import dispatch, extract_user_text
@@ -92,6 +96,23 @@ async def on_interaction(interaction: discord.Interaction):
                 )
         return
 
+    audio_parsed = parse_audio_custom_id(custom_id)
+    if audio_parsed is not None:
+        lang, headword = audio_parsed
+        try:
+            await handle_audio_click(interaction, lang, headword)
+        except Exception:
+            logger.exception(
+                "Failed to handle audio click (lang=%s, headword=%r)",
+                lang, headword,
+            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "音声生成でエラーが出たみたい。少し後でもう一度押してみて。",
+                    ephemeral=True,
+                )
+        return
+
 
 @client.event
 async def on_message(message: discord.Message):
@@ -107,13 +128,16 @@ async def on_message(message: discord.Message):
 
     async with message.channel.typing():
         try:
-            embed, files = await dispatch(
+            embed, view = await dispatch(
                 user_text=user_text,
                 user_id=str(message.author.id),
                 user_name=message.author.display_name,
                 bot_config=_bot_config,
             )
-            await message.channel.send(embed=embed, files=files)
+            send_kwargs: dict = {"embed": embed}
+            if view is not None:
+                send_kwargs["view"] = view
+            await message.channel.send(**send_kwargs)
         except Exception as e:
             logger.exception("Failed to handle query")
             await message.channel.send(f"ごめん、エラーが出ました: `{type(e).__name__}: {e}`")
