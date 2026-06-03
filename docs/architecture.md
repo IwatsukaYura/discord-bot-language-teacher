@@ -10,6 +10,7 @@
 | Discord ライブラリ  | discord.py 2.x                                           | Discord 接続・メッセージ / インタラクション処理                 |
 | LLM(一次/二次)      | Gemini API(`gemini-3.1-flash-lite` → `gemini-3.5-flash`) | 分類・解説・クイズ生成。一次が 404/429/5xx を返すと二次へ        |
 | LLM(フォールバック) | OpenRouter(任意、モデルは env 指定)                      | Gemini 全段が枯渇した時の最終フォールバック(1.1 参照)           |
+| TTS                 | gTTS(Google Translate TTS)                               | 単語見出し語の発音 mp3 合成(en / ja)                            |
 | データベース        | SQLite                                                   | クエリログ・クイズログの保存(2 Bot で共有)                     |
 | スケジューラ        | APScheduler                                              | 日次クイズ・週次レポートの cron 実行                            |
 | パッケージ管理      | uv                                                       | 依存関係・仮想環境の管理                                        |
@@ -42,7 +43,8 @@ flowchart TD
 
     subgraph proc["先生Bot プロセス（bot-en / bot-ja を BOT_ROLE で起動。フローは共通）"]
         Bot["メッセージ処理<br/>入力種別判定 → 各ハンドラ<br/>(target / explanation は BOT_ROLE で固定)"]
-        Sched["APScheduler<br/>日次クイズ 8:00 JST<br/>週次レポート 日 21:00 JST"]
+        TTS["gTTS<br/>単語見出し語の発音 mp3"]
+        Sched["APScheduler<br/>日次クイズ 8:00 JST<br/>週次レポート 土 09:00 JST"]
     end
 
     LLM["LLM フォールバックチェーン"]
@@ -50,10 +52,11 @@ flowchart TD
 
     Discord -->|"メンション"| Bot
     Bot --> LLM
+    Bot --> TTS
     Sched --> LLM
     Bot -->|"クエリログ書込"| DB
     Sched -->|"クイズログ"| DB
-    Bot -.->|"Embed 返信"| Discord
+    Bot -.->|"Embed + 音声添付 返信"| Discord
     Sched -.->|"クイズ / レポート投稿"| Discord
 ```
 
@@ -182,11 +185,11 @@ language-teacher/
 │   ├── main.py               # discord.py のエントリ(on_message / on_interaction)
 │   ├── config.py             # BOT_ROLE から BotConfig を導出
 │   ├── handlers/             # router / word / sentence / grammar / quiz ハンドラ
-│   ├── lib/                  # dispatcher / embeds / scheduler
+│   ├── lib/                  # dispatcher / embeds / scheduler / script(言語判定) / tts(gTTS)
 │   ├── llm/                  # client(フォールバックチェーン) / gemini_backend / openrouter_backend / errors
 │   ├── db/                   # SQLite アクセス(query_log / quiz_log)
 │   ├── quiz/                 # daily(出題ロジック) / poster(Embed・ボタン)
-│   ├── reports/              # weekly(週次レポート)
+│   ├── reports/              # weekly(レポート Embed) / weekly_view(Anki CSV ボタン) / anki_card(カード整形)
 │   └── scripts/              # run_report / try_quiz(手動トリガ用)
 ├── data/
 │   └── language_teacher.db   # SQLite 本体(.gitignore)
