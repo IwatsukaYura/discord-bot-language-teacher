@@ -7,7 +7,9 @@ from dotenv import load_dotenv
 
 from audio.playback import (
     handle_audio_click,
+    handle_word_example_audio_click,
     parse_custom_id as parse_audio_custom_id,
+    parse_word_example_custom_id,
 )
 from config import BotConfig, load_bot_config
 from db import query_log, quiz_log
@@ -105,6 +107,26 @@ async def on_interaction(interaction: discord.Interaction):
             logger.exception(
                 "Failed to handle audio click (lang=%s, headword=%r)",
                 lang, headword,
+            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "音声生成でエラーが出たみたい。少し後でもう一度押してみて。",
+                    ephemeral=True,
+                )
+        return
+
+    example_parsed = parse_word_example_custom_id(custom_id)
+    if example_parsed is not None:
+        lang, sense_idx, example_idx = example_parsed
+        try:
+            await handle_word_example_audio_click(
+                interaction, lang, sense_idx, example_idx
+            )
+        except Exception:
+            logger.exception(
+                "Failed to handle word example audio click "
+                "(lang=%s, sense=%d, example=%d)",
+                lang, sense_idx, example_idx,
             )
             if not interaction.response.is_done():
                 await interaction.response.send_message(

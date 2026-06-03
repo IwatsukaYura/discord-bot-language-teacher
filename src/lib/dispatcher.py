@@ -71,7 +71,11 @@ async def dispatch(
                 logger.warning("Failed to log word query: %s", e)
             embed = build_word_embed(result, target_lang, explanation_lang)
             headwords = _extract_unique_headwords(result["senses"])
-            view = playback.build_audio_view(headwords, target_lang)
+            view = playback.build_word_audio_view(
+                headwords=headwords,
+                senses=result["senses"],
+                lang=target_lang,
+            )
             return embed, view
 
         if input_type == "sentence":
