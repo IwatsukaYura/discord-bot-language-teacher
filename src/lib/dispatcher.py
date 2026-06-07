@@ -9,6 +9,7 @@ from config import BotConfig
 from db import query_log
 from handlers import grammar_handler, router, sentence_handler, word_handler
 from lib.embeds import build_grammar_embed, build_sentence_embed, build_word_embed
+from lib.script import matches_target_lang
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,29 @@ def _extract_unique_headwords(senses: list[dict]) -> list[str]:
 def _summarize_headwords(senses: list[dict]) -> str:
     """query_log.result_summary 用: ユニーク headword を ' / ' 区切りで連結。"""
     return " / ".join(_extract_unique_headwords(senses))
+
+
+def _extract_unique_translations(senses: list[dict]) -> list[str]:
+    """全 senses の translations を平坦化し初出順を保ったまま重複除去。"""
+    seen: list[str] = []
+    for sense in senses:
+        for t in sense.get("translations", []):
+            if t and t not in seen:
+                seen.append(t)
+    return seen
+
+
+def _summarize_word_result(query_text: str, senses: list[dict], target_lang: str) -> str:
+    """result_summary 用: MODE A は translations、MODE B は headwords を ' / ' で連結。
+
+    MODE A (query_text が target_lang のスクリプト) では headword が入力と同一なので
+    意味側 (explanation_lang) の translations を保存しないと週次レポート/Anki カードが
+    "complacent — complacent" のような無意味表示になる。判定は anki_card と同じ
+    matches_target_lang を使う。
+    """
+    if matches_target_lang(query_text, target_lang):
+        return " / ".join(_extract_unique_translations(senses))
+    return _summarize_headwords(senses)
 
 
 async def dispatch(
@@ -64,7 +88,9 @@ async def dispatch(
                     discord_user_id=user_id,
                     discord_user_name=user_name,
                     query_text=result["input"],
-                    result_summary=_summarize_headwords(result["senses"]),
+                    result_summary=_summarize_word_result(
+                        result["input"], result["senses"], target_lang
+                    ),
                     reading="",
                 )
             except Exception as e:
