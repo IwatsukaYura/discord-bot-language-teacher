@@ -189,6 +189,8 @@ async def _send_quiz(
         position=position,
         addon=addon,
         model_label=quiz_content.get("model_label"),
+        reading=quiz_content.get("reading"),
+        example=quiz_content.get("example_sentence"),
     )
     view = poster.QuizView(quiz_id=quiz_id, choices=quiz_content["choices"])
 
