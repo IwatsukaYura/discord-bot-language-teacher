@@ -50,6 +50,17 @@ def _parse_quiz_array(raw_response: str) -> list[dict]:
     return data
 
 
+def _extract_optional_str(parsed: dict, key: str) -> str:
+    """JSON にキーがあれば trim した文字列を、無ければ空文字を返す。
+
+    LLM が文字列以外(None/数値など)を返した場合も空文字にフォールバック。
+    """
+    value = parsed.get(key)
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
 def _validate_quiz(parsed: dict, require_source_text: bool) -> None:
     required = ["question_text", "choices", "correct_index", "explanation"]
     if require_source_text:
@@ -87,8 +98,41 @@ def _level_hint(target_lang: str) -> str:
     )
 
 
+def _ja_extra_fields_schema(target_lang: str) -> str:
+    """target_lang=ja の追加フィールド (reading / example_sentence) の JSON スキーマ片。
+
+    ja 以外では空文字を返し、プロンプトには何も追加しない。
+    """
+    if target_lang != "ja":
+        return ""
+    return (
+        ',\n  "reading": "hiragana reading of source_text — REQUIRED when source_text '
+        "contains any kanji (CJK Unified Ideographs); EMPTY STRING when source_text is "
+        'kana-only. Do NOT include the word itself, just the reading.",\n'
+        '  "example_sentence": "ONE short natural Japanese sentence (under 60 chars) '
+        "that uses source_text in context. Plain Japanese only, no translation, no "
+        'furigana annotations."'
+    )
+
+
+def _ja_extra_fields_rules(target_lang: str) -> str:
+    """ja 用の追加ルール文。ja 以外では空文字。"""
+    if target_lang != "ja":
+        return ""
+    return (
+        "\n- reading: when source_text contains any kanji, provide the full hiragana "
+        "reading; when source_text is fully kana, return an empty string. "
+        "NEVER include English or romaji.\n"
+        "- example_sentence: a natural daily-conversation sentence that uses "
+        "source_text. Must contain source_text as-is (do not change the surface form). "
+        "Do not translate the sentence; keep it under 60 characters."
+    )
+
+
 def _build_review_prompt(target_lang: str, explanation_lang: str) -> str:
     target_name, explanation_name = _lang_names(target_lang, explanation_lang)
+    extra_schema = _ja_extra_fields_schema(target_lang)
+    extra_rules = _ja_extra_fields_rules(target_lang)
     return f"""You are a {target_name} language quiz creator for {explanation_name} speakers.
 
 The learner studied a {target_name} word in the past and the word will be provided as the user message. Create a 4-option multiple-choice quiz testing whether they recall its meaning.
@@ -99,7 +143,7 @@ Return a JSON object with this exact structure:
   "question_text": "a question in {explanation_name} that QUOTES the source word by name and asks for its meaning. Substitute <WORD> with the actual source word. Template: \\"「<WORD>」の意味として最も適切なものはどれですか？\\" (when {explanation_name} is Japanese) or \\"What does <WORD> mean?\\" (when English)",
   "choices": ["choice 1", "choice 2", "choice 3", "choice 4"],
   "correct_index": <int 0-3 indicating which choice is correct>,
-  "explanation": "brief explanation in {explanation_name} (under 200 chars)"
+  "explanation": "brief explanation in {explanation_name} (under 200 chars)"{extra_schema}
 }}
 
 Rules:
@@ -108,7 +152,7 @@ Rules:
 - Distractors should be confusable (similar category, similar level) but clearly wrong.
 - Keep each choice short (under 30 characters where possible, hard max 80 for Discord button label).
 - Randomize the correct answer's position (do not always put it at index 0).
-- Explanation should be neutral reference-book tone (no character voice, no 〜だよ / 〜だね).
+- Explanation should be neutral reference-book tone (no character voice, no 〜だよ / 〜だね).{extra_rules}
 
 Respond ONLY with the JSON object, no markdown fences, no extra text."""
 
@@ -138,6 +182,8 @@ def _build_new_prompt(
     else:
         exclusion_section = "No exclusions."
 
+    extra_schema = _ja_extra_fields_schema(target_lang)
+    extra_rules = _ja_extra_fields_rules(target_lang)
     return f"""You are a {target_name} language quiz creator for {explanation_name} speakers.
 
 Pick ONE NEW {target_name} word the learner likely hasn't studied yet, then create a 4-option multiple-choice quiz on its meaning.
@@ -153,7 +199,7 @@ Return a JSON object with this exact structure:
   "question_text": "a question in {explanation_name} that QUOTES source_text by name and asks for its meaning. Substitute <WORD> with source_text. Template: \\"「<WORD>」の意味として最も適切なものはどれですか？\\" (when {explanation_name} is Japanese) or \\"What does <WORD> mean?\\" (when English)",
   "choices": ["choice 1", "choice 2", "choice 3", "choice 4"],
   "correct_index": <int 0-3 indicating which choice is correct>,
-  "explanation": "brief explanation in {explanation_name} (under 200 chars)"
+  "explanation": "brief explanation in {explanation_name} (under 200 chars)"{extra_schema}
 }}
 
 Rules:
@@ -164,7 +210,7 @@ Rules:
 - Distractors should be confusable but clearly wrong.
 - Keep each choice short (under 30 characters where possible, hard max 80).
 - Randomize the correct answer's position.
-- Explanation should be neutral reference-book tone (no character voice).
+- Explanation should be neutral reference-book tone (no character voice).{extra_rules}
 
 Respond ONLY with the JSON object, no markdown fences, no extra text."""
 
@@ -195,6 +241,8 @@ def _build_new_batch_prompt(
     else:
         exclusion_section = "No exclusions."
 
+    extra_schema = _ja_extra_fields_schema(target_lang)
+    extra_rules = _ja_extra_fields_rules(target_lang)
     return f"""You are a {target_name} language quiz creator for {explanation_name} speakers.
 
 Pick {count} DISTINCT NEW {target_name} words the learner likely hasn't studied yet, then create a 4-option multiple-choice quiz on the meaning of each.
@@ -211,7 +259,7 @@ Return a JSON array of exactly {count} objects, each with this exact structure:
     "question_text": "a question in {explanation_name} that QUOTES source_text by name and asks for its meaning. Substitute <WORD> with source_text. Template: \\"「<WORD>」の意味として最も適切なものはどれですか？\\" (when {explanation_name} is Japanese) or \\"What does <WORD> mean?\\" (when English)",
     "choices": ["choice 1", "choice 2", "choice 3", "choice 4"],
     "correct_index": <int 0-3 indicating which choice is correct>,
-    "explanation": "brief explanation in {explanation_name} (under 200 chars)"
+    "explanation": "brief explanation in {explanation_name} (under 200 chars)"{extra_schema}
   }}
 ]
 
@@ -224,7 +272,7 @@ Rules:
 - Distractors should be confusable but clearly wrong.
 - Keep each choice short (under 30 characters where possible, hard max 80).
 - Randomize the correct answer's position in each quiz.
-- Explanation should be neutral reference-book tone (no character voice).
+- Explanation should be neutral reference-book tone (no character voice).{extra_rules}
 
 Respond ONLY with the JSON array, no markdown fences, no extra text."""
 
@@ -245,6 +293,8 @@ async def generate_review_quiz(
         "choices": parsed["choices"],
         "correct_index": parsed["correct_index"],
         "explanation": parsed["explanation"],
+        "reading": _extract_optional_str(parsed, "reading"),
+        "example_sentence": _extract_optional_str(parsed, "example_sentence"),
         "model_label": llm_client.format_model(result),
     }
 
@@ -281,6 +331,8 @@ async def generate_new_quiz(
                 "choices": parsed["choices"],
                 "correct_index": parsed["correct_index"],
                 "explanation": parsed["explanation"],
+                "reading": _extract_optional_str(parsed, "reading"),
+                "example_sentence": _extract_optional_str(parsed, "example_sentence"),
                 "model_label": llm_client.format_model(result),
             }
 
@@ -346,6 +398,8 @@ async def generate_new_quiz_batch(
                 "choices": parsed["choices"],
                 "correct_index": parsed["correct_index"],
                 "explanation": parsed["explanation"],
+                "reading": _extract_optional_str(parsed, "reading"),
+                "example_sentence": _extract_optional_str(parsed, "example_sentence"),
                 "model_label": model_label,
             })
             if len(collected) >= count:

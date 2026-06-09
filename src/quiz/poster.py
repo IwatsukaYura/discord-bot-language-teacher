@@ -36,6 +36,29 @@ def _question_hint(explanation_lang: str) -> str:
     return "↓ 下のボタンから選んでね" if explanation_lang == "ja" else "↓ Tap one of the buttons below"
 
 
+def _build_description(
+    source_text: str,
+    reading: str | None,
+    example: str | None,
+    explanation_lang: str,
+) -> str:
+    """source_text 行(必要なら読み仮名併記) + 例文行 を組み立てる。
+
+    reading は source_text と異なる、かつ非空のときだけ括弧書きで併記する
+    (LLM が仮名のみ語に reading を返してきた場合のフォールバック)。
+    example は非空なら 📖 例文: 形式で追記する。
+    """
+    head = f"**{source_text}**"
+    if reading and reading != source_text:
+        head = f"{head}（{reading}）"
+
+    if not example:
+        return head
+
+    example_label = "例文" if explanation_lang == "ja" else "Example"
+    return f"{head}\n📖 {example_label}: {example}"
+
+
 def build_quiz_embed(
     source_text: str,
     question_text: str,
@@ -45,12 +68,14 @@ def build_quiz_embed(
     position: tuple[int, int],
     addon: bool = False,
     model_label: str | None = None,
+    reading: str | None = None,
+    example: str | None = None,
 ) -> discord.Embed:
     embed = discord.Embed(
         title=_title_for(mode, explanation_lang, position, addon=addon),
         color=_color_for(target_lang),
     )
-    embed.description = f"**{source_text}**"
+    embed.description = _build_description(source_text, reading, example, explanation_lang)
     embed.add_field(
         name=question_text,
         value=_question_hint(explanation_lang),
