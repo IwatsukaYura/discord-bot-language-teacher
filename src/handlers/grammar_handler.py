@@ -1,15 +1,14 @@
-import json
 import logging
-import re
 
+from lib.lang import lang_names
 from llm import client as llm_client
+from llm.parsing import parse_json_response
 
 logger = logging.getLogger(__name__)
 
 
 def _build_system_prompt(target_lang: str, explanation_lang: str) -> str:
-    target_name = "English" if target_lang == "en" else "Japanese"
-    explanation_name = "Japanese" if explanation_lang == "ja" else "English"
+    target_name, explanation_name = lang_names(target_lang, explanation_lang)
     return f"""You are a {target_name} grammar teacher for {explanation_name} speakers.
 The user is asking a question about a {target_name} grammar pattern. Your job is
 to identify the pattern and explain it in {explanation_name}.
@@ -28,22 +27,10 @@ Return a JSON object with this exact structure:
 Provide 2-3 examples. Respond ONLY with the JSON object, no markdown fences, no extra text."""
 
 
-def _strip_code_fences(text: str) -> str:
-    text = text.strip()
-    match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
-    return match.group(1).strip() if match else text
-
-
 async def handle_grammar(text: str, target_lang: str, explanation_lang: str) -> dict:
     system_prompt = _build_system_prompt(target_lang, explanation_lang)
     result = await llm_client.generate(system_prompt, text)
-    cleaned = _strip_code_fences(result.text)
-
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        logger.error("Failed to parse Gemini response as JSON: %r", cleaned)
-        raise ValueError(f"Invalid JSON from Gemini: {e}") from e
+    parsed = parse_json_response(result.text)
 
     return {
         "topic": parsed["topic"],

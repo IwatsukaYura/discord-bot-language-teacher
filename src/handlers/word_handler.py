@@ -1,16 +1,15 @@
-import json
 import logging
-import re
 from urllib.parse import quote
 
+from lib.lang import lang_names
 from llm import client as llm_client
+from llm.parsing import parse_json_response
 
 logger = logging.getLogger(__name__)
 
 
 def _build_system_prompt(target_lang: str, explanation_lang: str) -> str:
-    target_name = "English" if target_lang == "en" else "Japanese"
-    explanation_name = "Japanese" if explanation_lang == "ja" else "English"
+    target_name, explanation_name = lang_names(target_lang, explanation_lang)
     is_ja_target = target_lang == "ja"
 
     if is_ja_target:
@@ -79,12 +78,6 @@ Return a JSON object with this exact structure:
 Respond ONLY with the JSON object, no extra text, no markdown fences."""
 
 
-def _strip_code_fences(text: str) -> str:
-    text = text.strip()
-    match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
-    return match.group(1).strip() if match else text
-
-
 def _build_dictionary_url(word: str, template: str) -> str:
     return template.format(word=quote(word))
 
@@ -97,13 +90,7 @@ async def handle_word(
 ) -> dict:
     system_prompt = _build_system_prompt(target_lang, explanation_lang)
     result = await llm_client.generate(system_prompt, word)
-    cleaned = _strip_code_fences(result.text)
-
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        logger.error("Failed to parse Gemini response as JSON: %r", cleaned)
-        raise ValueError(f"Invalid JSON from Gemini: {e}") from e
+    parsed = parse_json_response(result.text)
 
     user_input = parsed.get("input", word)
     return {

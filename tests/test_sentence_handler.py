@@ -46,14 +46,6 @@ class TestBuildSystemPrompt:
         assert '"source_reading"' not in prompt
 
 
-class TestStripCodeFences:
-    def test_removes_json_labeled_fence(self):
-        assert sentence_handler._strip_code_fences('```json\n{"a":1}\n```') == '{"a":1}'
-
-    def test_passes_through_when_no_fence(self):
-        assert sentence_handler._strip_code_fences('{"a":1}') == '{"a":1}'
-
-
 class TestHandleSentence:
     async def test_returns_structured_dict_on_valid_response(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):

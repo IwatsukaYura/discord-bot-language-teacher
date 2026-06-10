@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import discord
 
 _QUIZ_BUTTON_PREFIX = "quiz"
@@ -110,7 +112,7 @@ class QuizView(discord.ui.View):
     main の on_interaction 経由で処理する。timeout=None で永続。
     """
 
-    def __init__(self, quiz_id: int, choices: list[str]):
+    def __init__(self, quiz_id: int, choices: Sequence[str]):
         super().__init__(timeout=None)
         for i, choice in enumerate(choices):
             self.add_item(

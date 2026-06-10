@@ -1,4 +1,143 @@
+from unittest.mock import AsyncMock
+
+from config import BotConfig
 from lib import dispatcher
+
+
+def _en_config() -> BotConfig:
+    return BotConfig(
+        role="en_teacher",
+        target_lang="en",
+        explanation_lang="ja",
+        dictionary_url_template="https://example.com/{word}",
+        learner_discord_id=None,
+        learner_name="learner",
+    )
+
+
+class TestDispatch:
+    async def test_word_input_logs_query_and_returns_embed_with_view(self, monkeypatch):
+        # Arrange
+        monkeypatch.setattr(
+            dispatcher.router, "classify_input", AsyncMock(return_value="word"),
+        )
+        word_result = {
+            "input": "apple",
+            "senses": [
+                {
+                    "headword": "apple",
+                    "translations": ["りんご"],
+                    "examples": [{"source": "I ate an apple.", "translation": "りんごを食べた。"}],
+                }
+            ],
+            "dictionary_url": "https://example.com/apple",
+            "model_label": "test-model",
+        }
+        monkeypatch.setattr(
+            dispatcher.word_handler, "handle_word", AsyncMock(return_value=word_result),
+        )
+        logged: dict = {}
+        monkeypatch.setattr(
+            dispatcher.query_log, "insert_query_log", lambda **kwargs: logged.update(kwargs),
+        )
+
+        # Act
+        embed, view = await dispatcher.dispatch("apple", "123", "user", _en_config())
+
+        # Assert
+        assert embed.title == "📘 apple"
+        assert view is not None
+        assert logged["kind"] == "word"
+        assert logged["query_text"] == "apple"
+        assert logged["result_summary"] == "りんご"
+
+    async def test_grammar_input_logs_topic_and_returns_embed_without_view(self, monkeypatch):
+        # Arrange
+        monkeypatch.setattr(
+            dispatcher.router, "classify_input", AsyncMock(return_value="grammar"),
+        )
+        grammar_result = {
+            "topic": "would have p.p.",
+            "target_lang": "en",
+            "explanation_lang": "ja",
+            "explanation": "仮定法過去完了の帰結節で使う。",
+            "examples": [],
+            "related": "",
+            "model_label": "test-model",
+        }
+        monkeypatch.setattr(
+            dispatcher.grammar_handler,
+            "handle_grammar",
+            AsyncMock(return_value=grammar_result),
+        )
+        logged: dict = {}
+        monkeypatch.setattr(
+            dispatcher.query_log, "insert_query_log", lambda **kwargs: logged.update(kwargs),
+        )
+
+        # Act
+        embed, view = await dispatcher.dispatch(
+            "would have p.p.の使い方", "123", "user", _en_config(),
+        )
+
+        # Assert
+        assert view is None
+        assert logged["kind"] == "grammar"
+        assert logged["query_text"] == "would have p.p.の使い方"
+        assert logged["result_summary"] == "would have p.p."
+
+    async def test_unknown_input_type_falls_back_to_grammar_route(self, monkeypatch):
+        # Arrange: router が想定外の種別を返しても grammar 扱いになる(従来挙動の維持)
+        monkeypatch.setattr(
+            dispatcher.router, "classify_input", AsyncMock(return_value="mystery"),
+        )
+        grammar_result = {
+            "topic": "topic",
+            "target_lang": "en",
+            "explanation_lang": "ja",
+            "explanation": "説明",
+            "examples": [],
+            "related": "",
+        }
+        handle = AsyncMock(return_value=grammar_result)
+        monkeypatch.setattr(dispatcher.grammar_handler, "handle_grammar", handle)
+        monkeypatch.setattr(dispatcher.query_log, "insert_query_log", lambda **kwargs: None)
+
+        # Act
+        await dispatcher.dispatch("???", "123", "user", _en_config())
+
+        # Assert
+        handle.assert_awaited_once()
+
+    async def test_logging_failure_does_not_break_response(self, monkeypatch):
+        # Arrange: query_log が落ちても応答は返る
+        monkeypatch.setattr(
+            dispatcher.router, "classify_input", AsyncMock(return_value="grammar"),
+        )
+        grammar_result = {
+            "topic": "topic",
+            "target_lang": "en",
+            "explanation_lang": "ja",
+            "explanation": "説明",
+            "examples": [],
+            "related": "",
+        }
+        monkeypatch.setattr(
+            dispatcher.grammar_handler,
+            "handle_grammar",
+            AsyncMock(return_value=grammar_result),
+        )
+
+        def boom(**kwargs):
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr(dispatcher.query_log, "insert_query_log", boom)
+
+        # Act
+        embed, view = await dispatcher.dispatch("q", "123", "user", _en_config())
+
+        # Assert
+        assert embed is not None
 
 
 class TestExtractUniqueHeadwords:
