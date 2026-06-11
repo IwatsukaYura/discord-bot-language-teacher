@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -58,7 +59,7 @@ def insert_quiz(
     mode: str,
     source_text: str,
     question_text: str,
-    choices: list[str],
+    choices: Sequence[str],
     correct_index: int,
     explanation: str,
     db_path: Path = DEFAULT_DB_PATH,

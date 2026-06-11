@@ -9,6 +9,7 @@ from db import query_log, quiz_log
 from handlers import quiz_handler
 from quiz import daily as quiz_daily
 from quiz import poster
+from quiz.models import Learner, QuizContent
 
 JST = ZoneInfo("Asia/Tokyo")
 
@@ -73,13 +74,13 @@ def _batch_returning(n_items):
     async def fake_batch(count, history, exclusion_list, target_lang, explanation_lang):
         fake_batch.captured = {"count": count, "exclusion_list": exclusion_list}
         return [
-            {
-                "source_text": f"w{i}",
-                "question_text": "?",
-                "choices": ["a", "b", "c", "d"],
-                "correct_index": 0,
-                "explanation": "e",
-            }
+            QuizContent(
+                source_text=f"w{i}",
+                question_text="?",
+                choices=("a", "b", "c", "d"),
+                correct_index=0,
+                explanation="e",
+            )
             for i in range(n_items)
         ]
 
@@ -138,7 +139,7 @@ class TestHandleAddonRequest:
         posted = []
 
         async def fake_post(channel, learner, count, db_path=None):
-            posted.append((learner["discord_user_id"], count))
+            posted.append((learner.discord_user_id, count))
 
         monkeypatch.setattr(quiz_daily, "post_addon_quizzes", fake_post)
         interaction = FakeInteraction(user_id=111)
@@ -172,7 +173,7 @@ class TestPostAddonQuizzes:
         fake_batch = _batch_returning(3)
         monkeypatch.setattr(quiz_handler, "generate_new_quiz_batch", fake_batch)
         channel = FakeChannel()
-        learner = {"discord_user_id": "111", "name": "t", "target_lang": "en"}
+        learner = Learner(discord_user_id="111", name="t", target_lang="en")
 
         await quiz_daily.post_addon_quizzes(channel, learner, count=3, db_path=db_path)
 
@@ -188,7 +189,7 @@ class TestPostAddonQuizzes:
         fake_batch = _batch_returning(1)
         monkeypatch.setattr(quiz_handler, "generate_new_quiz_batch", fake_batch)
         channel = FakeChannel()
-        learner = {"discord_user_id": "111", "name": "t", "target_lang": "en"}
+        learner = Learner(discord_user_id="111", name="t", target_lang="en")
 
         await quiz_daily.post_addon_quizzes(channel, learner, count=3, db_path=db_path)
 
