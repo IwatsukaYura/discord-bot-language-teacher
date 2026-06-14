@@ -263,3 +263,51 @@ class TestBuildNewBatchPromptConstraints:
         assert "慣用句" in prompt
         assert "welcome" in prompt.lower()
         assert "NEVER pick idioms" not in prompt
+
+
+class TestExampleSentenceField:
+    """例文フィールドは全言語、読み仮名フィールドは ja のみ要求される。"""
+
+    def _new_prompt(self, target_lang: str, explanation_lang: str) -> str:
+        return prompts.build_new_prompt(
+            target_lang=target_lang, explanation_lang=explanation_lang,
+            history=[], exclusion_list=[],
+        )
+
+    def test_ja_new_prompt_requests_example_sentence(self):
+        prompt = self._new_prompt("ja", "en")
+        assert "example_sentence" in prompt
+
+    def test_en_new_prompt_requests_example_sentence(self):
+        prompt = self._new_prompt("en", "ja")
+        assert "example_sentence" in prompt
+
+    def test_ja_new_prompt_requests_reading(self):
+        prompt = self._new_prompt("ja", "en")
+        assert "reading" in prompt
+
+    def test_en_new_prompt_omits_reading(self):
+        # reading は漢字特有のため英語クイズには付けない
+        prompt = self._new_prompt("en", "ja")
+        assert "reading" not in prompt
+
+    def test_review_prompt_requests_example_sentence_for_both_langs(self):
+        for target_lang, explanation_lang in (("ja", "en"), ("en", "ja")):
+            prompt = prompts.build_review_prompt(target_lang, explanation_lang)
+            assert "example_sentence" in prompt
+
+    def test_batch_prompt_requests_example_sentence_for_both_langs(self):
+        for target_lang, explanation_lang in (("ja", "en"), ("en", "ja")):
+            prompt = prompts.build_new_batch_prompt(
+                target_lang=target_lang, explanation_lang=explanation_lang,
+                history=[], exclusion_list=[], count=3,
+            )
+            assert "example_sentence" in prompt
+
+    def test_en_example_sentence_references_english(self):
+        prompt = self._new_prompt("en", "ja")
+        assert "English sentence" in prompt
+
+    def test_ja_example_sentence_references_japanese(self):
+        prompt = self._new_prompt("ja", "en")
+        assert "Japanese sentence" in prompt

@@ -20,7 +20,8 @@ class Learner:
 class QuizContent:
     """LLM が生成した 4 択クイズ 1 問分の内容。
 
-    reading / example_sentence は target_lang=ja のときだけ値が入る (それ以外は空文字)。
+    reading は target_lang=ja のときだけ値が入る (それ以外は空文字)。
+    example_sentence は全言語で値が入る (生成失敗時は空文字)。
     model_label は実際に応答したモデルのフッター表示用ラベル。
     """
 

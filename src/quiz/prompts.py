@@ -30,35 +30,55 @@ def _level_hint(target_lang: str) -> str:
     )
 
 
-def _ja_extra_fields_schema(target_lang: str) -> str:
-    """target_lang=ja の追加フィールド (reading / example_sentence) の JSON スキーマ片。
+_EXAMPLE_MAX_CHARS = {"ja": 60, "en": 100}
+_DEFAULT_EXAMPLE_MAX_CHARS = 80
 
-    ja 以外では空文字を返し、プロンプトには何も追加しない。
+
+def _example_max_chars(target_lang: str) -> int:
+    return _EXAMPLE_MAX_CHARS.get(target_lang, _DEFAULT_EXAMPLE_MAX_CHARS)
+
+
+def _extra_fields_schema(target_lang: str, target_name: str) -> str:
+    """出題に追加するフィールドの JSON スキーマ片。
+
+    example_sentence は全言語共通。reading は ja(漢字の読み)のみ追加する。
+    先頭は既存フィールドへ続けるためのカンマ + 改行で始める。
     """
-    if target_lang != "ja":
-        return ""
-    return (
-        ',\n  "reading": "hiragana reading of source_text — REQUIRED when source_text '
-        "contains any kanji (CJK Unified Ideographs); EMPTY STRING when source_text is "
-        'kana-only. Do NOT include the word itself, just the reading.",\n'
-        '  "example_sentence": "ONE short natural Japanese sentence (under 60 chars) '
-        "that uses source_text in context. Plain Japanese only, no translation, no "
-        'furigana annotations."'
+    max_chars = _example_max_chars(target_lang)
+    fields: list[str] = []
+    if target_lang == "ja":
+        fields.append(
+            '  "reading": "hiragana reading of source_text — REQUIRED when source_text '
+            "contains any kanji (CJK Unified Ideographs); EMPTY STRING when source_text "
+            'is kana-only. Do NOT include the word itself, just the reading."'
+        )
+    fields.append(
+        f'  "example_sentence": "ONE short natural {target_name} sentence (under '
+        f"{max_chars} chars) that uses source_text in context. Plain {target_name} "
+        'only, no translation, no annotations."'
     )
+    return ",\n" + ",\n".join(fields)
 
 
-def _ja_extra_fields_rules(target_lang: str) -> str:
-    """ja 用の追加ルール文。ja 以外では空文字。"""
-    if target_lang != "ja":
-        return ""
-    return (
-        "\n- reading: when source_text contains any kanji, provide the full hiragana "
-        "reading; when source_text is fully kana, return an empty string. "
-        "NEVER include English or romaji.\n"
-        "- example_sentence: a natural daily-conversation sentence that uses "
-        "source_text. Must contain source_text as-is (do not change the surface form). "
-        "Do not translate the sentence; keep it under 60 characters."
+def _extra_fields_rules(target_lang: str, target_name: str) -> str:
+    """example_sentence / reading に関する追加ルール文。
+
+    example_sentence は全言語共通。reading は ja のみ。
+    """
+    max_chars = _example_max_chars(target_lang)
+    rules: list[str] = []
+    if target_lang == "ja":
+        rules.append(
+            "reading: when source_text contains any kanji, provide the full hiragana "
+            "reading; when source_text is fully kana, return an empty string. "
+            "NEVER include English or romaji."
+        )
+    rules.append(
+        f"example_sentence: a natural daily-conversation {target_name} sentence that "
+        "uses source_text. Must contain source_text as-is (do not change the surface "
+        f"form). Do not translate the sentence; keep it under {max_chars} characters."
     )
+    return "\n- " + "\n- ".join(rules)
 
 
 def _history_section(history: list[str]) -> str:
@@ -83,8 +103,8 @@ def _exclusion_section(exclusion_list: list[str]) -> str:
 def build_review_prompt(target_lang: str, explanation_lang: str) -> str:
     """過去に学習した語の復習クイズ用 system prompt。"""
     target_name, explanation_name = lang_names(target_lang, explanation_lang)
-    extra_schema = _ja_extra_fields_schema(target_lang)
-    extra_rules = _ja_extra_fields_rules(target_lang)
+    extra_schema = _extra_fields_schema(target_lang, target_name)
+    extra_rules = _extra_fields_rules(target_lang, target_name)
     return f"""You are a {target_name} language quiz creator for {explanation_name} speakers.
 
 The learner studied a {target_name} word in the past and the word will be provided as the user message. Create a 4-option multiple-choice quiz testing whether they recall its meaning.
@@ -117,8 +137,8 @@ def build_new_prompt(
 ) -> str:
     """未学習語 1 つの新出クイズ用 system prompt。"""
     target_name, explanation_name = lang_names(target_lang, explanation_lang)
-    extra_schema = _ja_extra_fields_schema(target_lang)
-    extra_rules = _ja_extra_fields_rules(target_lang)
+    extra_schema = _extra_fields_schema(target_lang, target_name)
+    extra_rules = _extra_fields_rules(target_lang, target_name)
     return f"""You are a {target_name} language quiz creator for {explanation_name} speakers.
 
 Pick ONE NEW {target_name} word the learner likely hasn't studied yet, then create a 4-option multiple-choice quiz on its meaning.
@@ -159,8 +179,8 @@ def build_new_batch_prompt(
 ) -> str:
     """互いに異なる未学習語 count 個のバッチ新出クイズ用 system prompt。"""
     target_name, explanation_name = lang_names(target_lang, explanation_lang)
-    extra_schema = _ja_extra_fields_schema(target_lang)
-    extra_rules = _ja_extra_fields_rules(target_lang)
+    extra_schema = _extra_fields_schema(target_lang, target_name)
+    extra_rules = _extra_fields_rules(target_lang, target_name)
     return f"""You are a {target_name} language quiz creator for {explanation_name} speakers.
 
 Pick {count} DISTINCT NEW {target_name} words the learner likely hasn't studied yet, then create a 4-option multiple-choice quiz on the meaning of each.
