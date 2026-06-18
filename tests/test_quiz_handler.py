@@ -136,8 +136,25 @@ class TestGenerateNewQuizBatch:
         assert [q.source_text for q in result] == ["b", "c"]
         assert fake.calls == 2
 
-    async def test_caps_calls_and_returns_best_effort_when_short(self, monkeypatch):
-        fake = FakeGenerate([_arr("a"), _arr("a")])
+    async def test_tops_up_shortfall_with_single_generation(self, monkeypatch):
+        # Batch keeps returning the same single word, so after the batch phase only
+        # "a" is collected. The shortfall must be topped up via single-word
+        # generation, which yields the remaining distinct words.
+        fake = FakeGenerate([_arr("a"), _arr("a"), _resp("b"), _resp("c")])
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
+
+        result = await quiz_handler.generate_new_quiz_batch(
+            count=3, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
+        )
+
+        assert [q.source_text for q in result] == ["a", "b", "c"]
+        assert fake.calls == 4
+
+    async def test_returns_best_effort_when_no_more_distinct_words(self, monkeypatch):
+        # The model can only ever produce "a": batch yields it once, and the
+        # single-generation top-up exhausts its retries without a new word, so the
+        # batch returns the one word it managed to collect.
+        fake = FakeGenerate([_arr("a"), _arr("a"), _resp("a")])
         monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz_batch(
@@ -145,7 +162,23 @@ class TestGenerateNewQuizBatch:
         )
 
         assert [q.source_text for q in result] == ["a"]
-        assert fake.calls == quiz_handler._MAX_BATCH_ATTEMPTS
+        # _MAX_BATCH_ATTEMPTS batch calls + _MAX_NEW_QUIZ_ATTEMPTS exhausted top-up.
+        assert fake.calls == (
+            quiz_handler._MAX_BATCH_ATTEMPTS + quiz_handler._MAX_NEW_QUIZ_ATTEMPTS
+        )
+
+    async def test_malformed_batch_response_does_not_abort(self, monkeypatch):
+        # A non-JSON batch response on the first attempt must not crash the whole
+        # batch; the next attempt's valid array still fulfills the request.
+        fake = FakeGenerate(["not json {", _arr("a", "b")])
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
+
+        result = await quiz_handler.generate_new_quiz_batch(
+            count=2, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
+        )
+
+        assert [q.source_text for q in result] == ["a", "b"]
+        assert fake.calls == 2
 
     async def test_never_returns_more_than_count(self, monkeypatch):
         fake = FakeGenerate([_arr("a", "b", "c", "d", "e")])
