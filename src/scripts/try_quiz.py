@@ -17,28 +17,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import asyncio
 import json
+from dataclasses import asdict
 
 from dotenv import load_dotenv
 
 from db import quiz_log
 from handlers import quiz_handler
+from lib.lang import explanation_lang_for
+from quiz.models import QuizContent
 
 load_dotenv()
 
 
-def _explanation_lang(target_lang: str) -> str:
-    return "ja" if target_lang == "en" else "en"
-
-
-async def _do_review(source_word: str, target_lang: str) -> dict:
+async def _do_review(source_word: str, target_lang: str) -> QuizContent:
     return await quiz_handler.generate_review_quiz(
         source_word=source_word,
         target_lang=target_lang,
-        explanation_lang=_explanation_lang(target_lang),
+        explanation_lang=explanation_lang_for(target_lang),
     )
 
 
-async def _do_new(target_lang: str, user_id: str | None) -> dict:
+async def _do_new(target_lang: str, user_id: str | None) -> QuizContent:
     history: list[str] = []
     exclusion: list[str] = []
     if user_id:
@@ -50,7 +49,7 @@ async def _do_new(target_lang: str, user_id: str | None) -> dict:
         history=history,
         exclusion_list=exclusion,
         target_lang=target_lang,
-        explanation_lang=_explanation_lang(target_lang),
+        explanation_lang=explanation_lang_for(target_lang),
     )
 
 
@@ -81,19 +80,18 @@ async def main() -> None:
         print(f"Unknown mode: {mode!r}. Use 'review' or 'new'.", file=sys.stderr)
         sys.exit(1)
 
-    correct_index = result["correct_index"]
     print()
     print("=" * 60)
-    print(f"  source: {result['source_text']}")
-    print(f"  question: {result['question_text']}")
+    print(f"  source: {result.source_text}")
+    print(f"  question: {result.question_text}")
     print("  choices:")
-    for i, c in enumerate(result["choices"]):
-        marker = " ◀ correct" if i == correct_index else ""
+    for i, c in enumerate(result.choices):
+        marker = " ◀ correct" if i == result.correct_index else ""
         print(f"    [{i}] {c}{marker}")
-    print(f"  explanation: {result['explanation']}")
+    print(f"  explanation: {result.explanation}")
     print("=" * 60)
     print()
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    print(json.dumps(asdict(result), indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

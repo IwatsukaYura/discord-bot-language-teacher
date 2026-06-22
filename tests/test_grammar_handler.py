@@ -35,14 +35,6 @@ MOCK_EN_GRAMMAR_RESPONSE = json.dumps({
 })
 
 
-class TestStripCodeFences:
-    def test_removes_json_labeled_fence(self):
-        assert grammar_handler._strip_code_fences('```json\n{"a":1}\n```') == '{"a":1}'
-
-    def test_passes_through_when_no_fence(self):
-        assert grammar_handler._strip_code_fences('{"a":1}') == '{"a":1}'
-
-
 class TestHandleGrammar:
     async def test_returns_structured_dict_for_japanese_grammar_question(self, monkeypatch):
         async def fake_generate(system_prompt, user_prompt):

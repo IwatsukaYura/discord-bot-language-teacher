@@ -7,6 +7,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from config import BotConfig
 from quiz import daily as quiz_daily
+from quiz.models import Learner
 from reports import weekly
 
 logger = logging.getLogger(__name__)
@@ -38,14 +39,14 @@ def setup_weekly_scheduler(
     )
 
 
-def _get_quiz_learner(bot_config: BotConfig) -> dict | None:
+def _get_quiz_learner(bot_config: BotConfig) -> Learner | None:
     if not bot_config.learner_discord_id:
         return None
-    return {
-        "discord_user_id": bot_config.learner_discord_id,
-        "name": bot_config.learner_name,
-        "target_lang": bot_config.target_lang,
-    }
+    return Learner(
+        discord_user_id=bot_config.learner_discord_id,
+        name=bot_config.learner_name,
+        target_lang=bot_config.target_lang,
+    )
 
 
 def setup_quiz_scheduler(
@@ -74,4 +75,4 @@ def setup_quiz_scheduler(
     )
     if not scheduler.running:
         scheduler.start()
-    logger.info("Daily quiz scheduler set (8:00 JST) for %s", learner["name"])
+    logger.info("Daily quiz scheduler set (8:00 JST) for %s", learner.name)

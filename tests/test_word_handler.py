@@ -151,24 +151,6 @@ class TestBuildSystemPrompt:
         assert '"translations"' in prompt
 
 
-class TestStripCodeFences:
-    def test_removes_json_labeled_fence(self):
-        text = '```json\n{"a": 1}\n```'
-        assert word_handler._strip_code_fences(text) == '{"a": 1}'
-
-    def test_removes_plain_fence(self):
-        text = '```\n{"a": 1}\n```'
-        assert word_handler._strip_code_fences(text) == '{"a": 1}'
-
-    def test_passes_through_when_no_fence(self):
-        text = '{"a": 1}'
-        assert word_handler._strip_code_fences(text) == '{"a": 1}'
-
-    def test_strips_leading_and_trailing_whitespace(self):
-        text = '   {"a": 1}   '
-        assert word_handler._strip_code_fences(text) == '{"a": 1}'
-
-
 class TestBuildDictionaryUrl:
     def test_english_word_is_inserted_as_is(self):
         url = word_handler._build_dictionary_url("apple", "https://example.com/{word}")

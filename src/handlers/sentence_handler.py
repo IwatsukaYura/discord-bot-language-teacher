@@ -1,15 +1,14 @@
-import json
 import logging
-import re
 
+from lib.lang import lang_names
 from llm import client as llm_client
+from llm.parsing import parse_json_response
 
 logger = logging.getLogger(__name__)
 
 
 def _build_system_prompt(target_lang: str, explanation_lang: str) -> str:
-    target_name = "English" if target_lang == "en" else "Japanese"
-    explanation_name = "Japanese" if explanation_lang == "ja" else "English"
+    target_name, explanation_name = lang_names(target_lang, explanation_lang)
     reading_rule = (
         '\n  "source_reading": "hiragana reading of source_text for any kanji it contains; empty string if no kanji",'
         if target_lang == "ja"
@@ -40,12 +39,6 @@ Provide 1-3 key points only when they would meaningfully help the learner. An em
 Respond ONLY with the JSON object, no markdown fences, no extra text."""
 
 
-def _strip_code_fences(text: str) -> str:
-    text = text.strip()
-    match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
-    return match.group(1).strip() if match else text
-
-
 async def handle_sentence(
     text: str,
     target_lang: str,
@@ -53,13 +46,7 @@ async def handle_sentence(
 ) -> dict:
     system_prompt = _build_system_prompt(target_lang, explanation_lang)
     result = await llm_client.generate(system_prompt, text)
-    cleaned = _strip_code_fences(result.text)
-
-    try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        logger.error("Failed to parse Gemini response as JSON: %r", cleaned)
-        raise ValueError(f"Invalid JSON from Gemini: {e}") from e
+    parsed = parse_json_response(result.text)
 
     return {
         "source_text": parsed["source_text"],

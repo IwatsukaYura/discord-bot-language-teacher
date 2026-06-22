@@ -3,6 +3,7 @@ import json
 import pytest
 
 from handlers import quiz_handler
+from quiz import prompts
 from llm import client as llm_client
 
 
@@ -47,8 +48,8 @@ class TestGenerateNewQuizDedup:
             history=[], exclusion_list=["付箋"], target_lang="ja", explanation_lang="en",
         )
 
-        assert result["source_text"] == "鉛筆"
-        assert result["model_label"] == "test-model"
+        assert result.source_text == "鉛筆"
+        assert result.model_label == "test-model"
         assert fake.calls == 1
 
     async def test_retries_until_non_duplicate(self, monkeypatch):
@@ -59,7 +60,7 @@ class TestGenerateNewQuizDedup:
             history=[], exclusion_list=["付箋"], target_lang="ja", explanation_lang="en",
         )
 
-        assert result["source_text"] == "鉛筆"
+        assert result.source_text == "鉛筆"
         assert fake.calls == 2
 
     async def test_rejected_word_is_fed_into_retry_prompt(self, monkeypatch):
@@ -83,7 +84,7 @@ class TestGenerateNewQuizDedup:
             history=[], exclusion_list=["apple"], target_lang="en", explanation_lang="ja",
         )
 
-        assert result["source_text"] == "banana"
+        assert result.source_text == "banana"
         assert fake.calls == 2
 
     async def test_raises_after_max_attempts_all_duplicate(self, monkeypatch):
@@ -107,8 +108,8 @@ class TestGenerateNewQuizBatch:
             count=3, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
         )
 
-        assert [q["source_text"] for q in result] == ["a", "b", "c"]
-        assert all(q["model_label"] == "test-model" for q in result)
+        assert [q.source_text for q in result] == ["a", "b", "c"]
+        assert all(q.model_label == "test-model" for q in result)
         assert fake.calls == 1
 
     async def test_dedups_within_a_batch(self, monkeypatch):
@@ -121,7 +122,7 @@ class TestGenerateNewQuizBatch:
             count=3, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
         )
 
-        assert [q["source_text"] for q in result] == ["a", "b", "c"]
+        assert [q.source_text for q in result] == ["a", "b", "c"]
         assert fake.calls == 2
 
     async def test_excludes_listed_words(self, monkeypatch):
@@ -132,19 +133,52 @@ class TestGenerateNewQuizBatch:
             count=2, history=[], exclusion_list=["a"], target_lang="en", explanation_lang="ja",
         )
 
-        assert [q["source_text"] for q in result] == ["b", "c"]
+        assert [q.source_text for q in result] == ["b", "c"]
         assert fake.calls == 2
 
-    async def test_caps_calls_and_returns_best_effort_when_short(self, monkeypatch):
-        fake = FakeGenerate([_arr("a"), _arr("a")])
+    async def test_tops_up_shortfall_with_single_generation(self, monkeypatch):
+        # Batch keeps returning the same single word, so after the batch phase only
+        # "a" is collected. The shortfall must be topped up via single-word
+        # generation, which yields the remaining distinct words.
+        fake = FakeGenerate([_arr("a"), _arr("a"), _resp("b"), _resp("c")])
         monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
 
         result = await quiz_handler.generate_new_quiz_batch(
             count=3, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
         )
 
-        assert [q["source_text"] for q in result] == ["a"]
-        assert fake.calls == quiz_handler._MAX_BATCH_ATTEMPTS
+        assert [q.source_text for q in result] == ["a", "b", "c"]
+        assert fake.calls == 4
+
+    async def test_returns_best_effort_when_no_more_distinct_words(self, monkeypatch):
+        # The model can only ever produce "a": batch yields it once, and the
+        # single-generation top-up exhausts its retries without a new word, so the
+        # batch returns the one word it managed to collect.
+        fake = FakeGenerate([_arr("a"), _arr("a"), _resp("a")])
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
+
+        result = await quiz_handler.generate_new_quiz_batch(
+            count=3, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
+        )
+
+        assert [q.source_text for q in result] == ["a"]
+        # _MAX_BATCH_ATTEMPTS batch calls + _MAX_NEW_QUIZ_ATTEMPTS exhausted top-up.
+        assert fake.calls == (
+            quiz_handler._MAX_BATCH_ATTEMPTS + quiz_handler._MAX_NEW_QUIZ_ATTEMPTS
+        )
+
+    async def test_malformed_batch_response_does_not_abort(self, monkeypatch):
+        # A non-JSON batch response on the first attempt must not crash the whole
+        # batch; the next attempt's valid array still fulfills the request.
+        fake = FakeGenerate(["not json {", _arr("a", "b")])
+        monkeypatch.setattr(quiz_handler.llm_client, "generate", fake)
+
+        result = await quiz_handler.generate_new_quiz_batch(
+            count=2, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
+        )
+
+        assert [q.source_text for q in result] == ["a", "b"]
+        assert fake.calls == 2
 
     async def test_never_returns_more_than_count(self, monkeypatch):
         fake = FakeGenerate([_arr("a", "b", "c", "d", "e")])
@@ -165,13 +199,13 @@ class TestGenerateNewQuizBatch:
             count=1, history=[], exclusion_list=[], target_lang="en", explanation_lang="ja",
         )
 
-        assert [q["source_text"] for q in result] == ["a"]
+        assert [q.source_text for q in result] == ["a"]
         assert fake.calls == 1
 
 
 class TestBuildNewPromptConstraints:
     def test_ja_prompt_specifies_jlpt_level(self):
-        prompt = quiz_handler._build_new_prompt(
+        prompt = prompts.build_new_prompt(
             target_lang="ja", explanation_lang="en",
             history=[], exclusion_list=[],
         )
@@ -179,7 +213,7 @@ class TestBuildNewPromptConstraints:
         assert "N2" in prompt
 
     def test_en_prompt_specifies_eiken_and_ielts_level(self):
-        prompt = quiz_handler._build_new_prompt(
+        prompt = prompts.build_new_prompt(
             target_lang="en", explanation_lang="ja",
             history=[], exclusion_list=[],
         )
@@ -187,7 +221,7 @@ class TestBuildNewPromptConstraints:
         assert "IELTS" in prompt
 
     def test_ja_prompt_welcomes_idioms_but_prefers_daily_use(self):
-        prompt = quiz_handler._build_new_prompt(
+        prompt = prompts.build_new_prompt(
             target_lang="ja", explanation_lang="en",
             history=[], exclusion_list=[],
         )
@@ -199,7 +233,7 @@ class TestBuildNewPromptConstraints:
         assert "rare" in prompt.lower()
 
     def test_en_prompt_welcomes_idioms_but_prefers_daily_use(self):
-        prompt = quiz_handler._build_new_prompt(
+        prompt = prompts.build_new_prompt(
             target_lang="en", explanation_lang="ja",
             history=[], exclusion_list=[],
         )
@@ -211,7 +245,7 @@ class TestBuildNewPromptConstraints:
     def test_prompt_no_longer_forbids_idioms(self):
         # Old behavior banned all idioms — must not appear in current prompt
         for lang in ("ja", "en"):
-            prompt = quiz_handler._build_new_prompt(
+            prompt = prompts.build_new_prompt(
                 target_lang=lang, explanation_lang="en" if lang == "ja" else "ja",
                 history=[], exclusion_list=[],
             )
@@ -220,7 +254,7 @@ class TestBuildNewPromptConstraints:
             assert "SINGLE content word" not in prompt
 
     def test_history_is_labeled_topical_not_level_guide(self):
-        prompt = quiz_handler._build_new_prompt(
+        prompt = prompts.build_new_prompt(
             target_lang="ja", explanation_lang="en",
             history=["挨拶", "天気"], exclusion_list=[],
         )
@@ -229,7 +263,7 @@ class TestBuildNewPromptConstraints:
 
     def test_prompt_no_longer_references_cefr_a1_a2(self):
         for lang in ("ja", "en"):
-            prompt = quiz_handler._build_new_prompt(
+            prompt = prompts.build_new_prompt(
                 target_lang=lang, explanation_lang="en" if lang == "ja" else "ja",
                 history=[], exclusion_list=[],
             )
@@ -239,7 +273,7 @@ class TestBuildNewPromptConstraints:
 
 class TestBuildNewBatchPromptConstraints:
     def test_batch_ja_prompt_specifies_jlpt_level(self):
-        prompt = quiz_handler._build_new_batch_prompt(
+        prompt = prompts.build_new_batch_prompt(
             target_lang="ja", explanation_lang="en",
             history=[], exclusion_list=[], count=3,
         )
@@ -247,7 +281,7 @@ class TestBuildNewBatchPromptConstraints:
         assert "N2" in prompt
 
     def test_batch_en_prompt_specifies_eiken_and_ielts(self):
-        prompt = quiz_handler._build_new_batch_prompt(
+        prompt = prompts.build_new_batch_prompt(
             target_lang="en", explanation_lang="ja",
             history=[], exclusion_list=[], count=3,
         )
@@ -255,10 +289,58 @@ class TestBuildNewBatchPromptConstraints:
         assert "IELTS" in prompt
 
     def test_batch_prompt_welcomes_idioms(self):
-        prompt = quiz_handler._build_new_batch_prompt(
+        prompt = prompts.build_new_batch_prompt(
             target_lang="ja", explanation_lang="en",
             history=[], exclusion_list=[], count=3,
         )
         assert "慣用句" in prompt
         assert "welcome" in prompt.lower()
         assert "NEVER pick idioms" not in prompt
+
+
+class TestExampleSentenceField:
+    """例文フィールドは全言語、読み仮名フィールドは ja のみ要求される。"""
+
+    def _new_prompt(self, target_lang: str, explanation_lang: str) -> str:
+        return prompts.build_new_prompt(
+            target_lang=target_lang, explanation_lang=explanation_lang,
+            history=[], exclusion_list=[],
+        )
+
+    def test_ja_new_prompt_requests_example_sentence(self):
+        prompt = self._new_prompt("ja", "en")
+        assert "example_sentence" in prompt
+
+    def test_en_new_prompt_requests_example_sentence(self):
+        prompt = self._new_prompt("en", "ja")
+        assert "example_sentence" in prompt
+
+    def test_ja_new_prompt_requests_reading(self):
+        prompt = self._new_prompt("ja", "en")
+        assert "reading" in prompt
+
+    def test_en_new_prompt_omits_reading(self):
+        # reading は漢字特有のため英語クイズには付けない
+        prompt = self._new_prompt("en", "ja")
+        assert "reading" not in prompt
+
+    def test_review_prompt_requests_example_sentence_for_both_langs(self):
+        for target_lang, explanation_lang in (("ja", "en"), ("en", "ja")):
+            prompt = prompts.build_review_prompt(target_lang, explanation_lang)
+            assert "example_sentence" in prompt
+
+    def test_batch_prompt_requests_example_sentence_for_both_langs(self):
+        for target_lang, explanation_lang in (("ja", "en"), ("en", "ja")):
+            prompt = prompts.build_new_batch_prompt(
+                target_lang=target_lang, explanation_lang=explanation_lang,
+                history=[], exclusion_list=[], count=3,
+            )
+            assert "example_sentence" in prompt
+
+    def test_en_example_sentence_references_english(self):
+        prompt = self._new_prompt("en", "ja")
+        assert "English sentence" in prompt
+
+    def test_ja_example_sentence_references_japanese(self):
+        prompt = self._new_prompt("ja", "en")
+        assert "Japanese sentence" in prompt

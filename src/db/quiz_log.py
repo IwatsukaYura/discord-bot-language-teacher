@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -58,7 +59,7 @@ def insert_quiz(
     mode: str,
     source_text: str,
     question_text: str,
-    choices: list[str],
+    choices: Sequence[str],
     correct_index: int,
     explanation: str,
     db_path: Path = DEFAULT_DB_PATH,
@@ -236,6 +237,21 @@ def mark_addon_used(
         conn.execute(
             "INSERT OR IGNORE INTO quiz_addon (discord_user_id, target_lang, used_date) "
             "VALUES (?, ?, ?)",
+            (discord_user_id, target_lang, today),
+        )
+
+
+def clear_addon_used(
+    discord_user_id: str,
+    target_lang: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """今日(JST)の追加クイズ枠の消費を取り消す(生成失敗時の返却用)。"""
+    today = datetime.now(JST).date().isoformat()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "DELETE FROM quiz_addon "
+            "WHERE discord_user_id = ? AND target_lang = ? AND used_date = ?",
             (discord_user_id, target_lang, today),
         )
 

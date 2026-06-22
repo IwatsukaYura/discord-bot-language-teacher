@@ -14,6 +14,7 @@ from audio.playback import (
 from config import BotConfig, load_bot_config
 from db import query_log, quiz_log
 from lib.dispatcher import dispatch, extract_user_text
+from lib.interaction_router import InteractionRoute, route_component_interaction
 from lib.scheduler import setup_quiz_scheduler, setup_weekly_scheduler
 from quiz.daily import handle_addon_request, handle_quiz_answer
 from quiz.poster import parse_addon_custom_id, parse_custom_id
@@ -45,6 +46,24 @@ async def on_ready():
     setup_quiz_scheduler(client, _scheduler, _bot_config)
 
 
+_RETRY_BUTTON_MSG = "エラーが出たみたい。少し後でもう一度ボタンを押してみて。"
+_CSV_ERROR_MSG = "CSV生成でエラーが出たみたい。少し後でもう一度押してみて。"
+_AUDIO_ERROR_MSG = "音声生成でエラーが出たみたい。少し後でもう一度押してみて。"
+
+_INTERACTION_ROUTES: tuple[InteractionRoute, ...] = (
+    InteractionRoute("quiz answer", parse_custom_id, handle_quiz_answer, _RETRY_BUTTON_MSG),
+    InteractionRoute("addon request", parse_addon_custom_id, handle_addon_request, _RETRY_BUTTON_MSG),
+    InteractionRoute("weekly CSV click", parse_weekly_csv_custom_id, handle_weekly_csv_click, _CSV_ERROR_MSG),
+    InteractionRoute("audio click", parse_audio_custom_id, handle_audio_click, _AUDIO_ERROR_MSG),
+    InteractionRoute(
+        "word example audio click",
+        parse_word_example_custom_id,
+        handle_word_example_audio_click,
+        _AUDIO_ERROR_MSG,
+    ),
+)
+
+
 @client.event
 async def on_interaction(interaction: discord.Interaction):
     if interaction.type != discord.InteractionType.component:
@@ -52,88 +71,7 @@ async def on_interaction(interaction: discord.Interaction):
     if not interaction.data:
         return
     custom_id = interaction.data.get("custom_id", "")
-
-    parsed = parse_custom_id(custom_id)
-    if parsed is not None:
-        quiz_id, choice_index = parsed
-        try:
-            await handle_quiz_answer(interaction, quiz_id, choice_index)
-        except Exception:
-            logger.exception("Failed to handle quiz answer (quiz_id=%d)", quiz_id)
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "エラーが出たみたい。少し後でもう一度ボタンを押してみて。",
-                    ephemeral=True,
-                )
-        return
-
-    addon_parsed = parse_addon_custom_id(custom_id)
-    if addon_parsed is not None:
-        user_id, target_lang, count = addon_parsed
-        try:
-            await handle_addon_request(interaction, user_id, target_lang, count)
-        except Exception:
-            logger.exception("Failed to handle addon request (user=%s)", user_id)
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "エラーが出たみたい。少し後でもう一度ボタンを押してみて。",
-                    ephemeral=True,
-                )
-        return
-
-    weekly_csv_parsed = parse_weekly_csv_custom_id(custom_id)
-    if weekly_csv_parsed is not None:
-        target_lang, start = weekly_csv_parsed
-        try:
-            await handle_weekly_csv_click(interaction, target_lang, start)
-        except Exception:
-            logger.exception(
-                "Failed to handle weekly CSV click (lang=%s, start=%s)",
-                target_lang, start.isoformat(),
-            )
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "CSV生成でエラーが出たみたい。少し後でもう一度押してみて。",
-                    ephemeral=True,
-                )
-        return
-
-    audio_parsed = parse_audio_custom_id(custom_id)
-    if audio_parsed is not None:
-        lang, headword = audio_parsed
-        try:
-            await handle_audio_click(interaction, lang, headword)
-        except Exception:
-            logger.exception(
-                "Failed to handle audio click (lang=%s, headword=%r)",
-                lang, headword,
-            )
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "音声生成でエラーが出たみたい。少し後でもう一度押してみて。",
-                    ephemeral=True,
-                )
-        return
-
-    example_parsed = parse_word_example_custom_id(custom_id)
-    if example_parsed is not None:
-        lang, sense_idx, example_idx = example_parsed
-        try:
-            await handle_word_example_audio_click(
-                interaction, lang, sense_idx, example_idx
-            )
-        except Exception:
-            logger.exception(
-                "Failed to handle word example audio click "
-                "(lang=%s, sense=%d, example=%d)",
-                lang, sense_idx, example_idx,
-            )
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    "音声生成でエラーが出たみたい。少し後でもう一度押してみて。",
-                    ephemeral=True,
-                )
-        return
+    await route_component_interaction(interaction, custom_id, _INTERACTION_ROUTES)
 
 
 @client.event
