@@ -54,6 +54,10 @@ class FakeInteraction:
         self.response = FakeResponse()
         self.followup = FakeFollowup()
         self.channel = channel
+        self.edited_original = []
+
+    async def edit_original_response(self, *, content=None, view=None, **kw):
+        self.edited_original.append({"content": content, "view": view})
 
 
 class FakeMessage:
@@ -140,6 +144,7 @@ class TestHandleAddonRequest:
 
         async def fake_post(channel, learner, count, db_path=None):
             posted.append((learner.discord_user_id, count))
+            return count
 
         monkeypatch.setattr(quiz_daily, "post_addon_quizzes", fake_post)
         interaction = FakeInteraction(user_id=111)
@@ -150,6 +155,8 @@ class TestHandleAddonRequest:
 
         assert quiz_log.has_used_addon_today("111", "en", db_path=db_path) is True
         assert posted == [("111", 3)]
+        # The original ack is updated to reflect the number actually posted.
+        assert "3" in interaction.edited_original[-1]["content"]
 
     async def test_already_used_does_not_post(self, db_path, monkeypatch):
         posted = []
@@ -167,6 +174,35 @@ class TestHandleAddonRequest:
 
         assert posted == []
 
+    async def test_refunds_allowance_when_nothing_posted(self, db_path, monkeypatch):
+        async def fake_post(channel, learner, count, db_path=None):
+            return 0
+
+        monkeypatch.setattr(quiz_daily, "post_addon_quizzes", fake_post)
+        interaction = FakeInteraction(user_id=111)
+
+        await quiz_daily.handle_addon_request(
+            interaction, user_id="111", target_lang="en", count=3, db_path=db_path,
+        )
+
+        # Nothing posted → the allowance is refunded and the buttons come back.
+        assert quiz_log.has_used_addon_today("111", "en", db_path=db_path) is False
+        assert isinstance(interaction.edited_original[-1]["view"], poster.AddonView)
+
+    async def test_refunds_allowance_when_generation_raises(self, db_path, monkeypatch):
+        async def fake_post(channel, learner, count, db_path=None):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(quiz_daily, "post_addon_quizzes", fake_post)
+        interaction = FakeInteraction(user_id=111)
+
+        await quiz_daily.handle_addon_request(
+            interaction, user_id="111", target_lang="en", count=3, db_path=db_path,
+        )
+
+        assert quiz_log.has_used_addon_today("111", "en", db_path=db_path) is False
+        assert isinstance(interaction.edited_original[-1]["view"], poster.AddonView)
+
 
 class TestPostAddonQuizzes:
     async def test_posts_each_generated_quiz(self, db_path, monkeypatch):
@@ -175,8 +211,9 @@ class TestPostAddonQuizzes:
         channel = FakeChannel()
         learner = Learner(discord_user_id="111", name="t", target_lang="en")
 
-        await quiz_daily.post_addon_quizzes(channel, learner, count=3, db_path=db_path)
+        posted = await quiz_daily.post_addon_quizzes(channel, learner, count=3, db_path=db_path)
 
+        assert posted == 3
         assert len(channel.sent) == 3
         with sqlite3.connect(db_path) as conn:
             n = conn.execute(
@@ -191,8 +228,9 @@ class TestPostAddonQuizzes:
         channel = FakeChannel()
         learner = Learner(discord_user_id="111", name="t", target_lang="en")
 
-        await quiz_daily.post_addon_quizzes(channel, learner, count=3, db_path=db_path)
+        posted = await quiz_daily.post_addon_quizzes(channel, learner, count=3, db_path=db_path)
 
+        assert posted == 1
         assert len(channel.sent) == 1
 
 

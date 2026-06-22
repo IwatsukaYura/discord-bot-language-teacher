@@ -71,11 +71,12 @@ async def post_addon_quizzes(
     learner: Learner,
     count: int,
     db_path: Path | None = None,
-) -> None:
-    """ユーザー要求に応じて追加の新出クイズを count 問投稿する。
+) -> int:
+    """ユーザー要求に応じて追加の新出クイズを count 問投稿し、実際に投稿できた数を返す。
 
     除外リストは 1 度だけ取得し、互いに異なる count 問をバッチ生成してから投稿する
     (1 問ずつ生成するより API コールを大幅に削減する)。
+    呼び出し側は戻り値が 0 のとき「枠の返却」などの失敗ハンドリングに使う。
     """
     if db_path is None:
         db_path = quiz_log.DEFAULT_DB_PATH
@@ -98,6 +99,7 @@ async def post_addon_quizzes(
     )
 
     total = len(quizzes)
+    posted = 0
     for i, quiz_content in enumerate(quizzes):
         try:
             await _send_quiz(
@@ -106,9 +108,11 @@ async def post_addon_quizzes(
                 quiz_content=quiz_content,
                 db_path=db_path, position=(i + 1, total), addon=True,
             )
+            posted += 1
         except Exception:
             logger.exception("Failed to post addon quiz %d/%d for %s",
                              i + 1, total, learner.name)
+    return posted
 
 
 async def _post_one(
@@ -329,4 +333,29 @@ async def handle_addon_request(
         name=interaction.user.display_name,
         target_lang=target_lang,
     )
-    await post_addon_quizzes(interaction.channel, learner, count, db_path=db_path)
+
+    try:
+        posted = await post_addon_quizzes(interaction.channel, learner, count, db_path=db_path)
+    except Exception:
+        logger.exception("Addon quiz generation failed for user %s", user_id)
+        posted = 0
+
+    if posted == 0:
+        # 1 問も出せなかったら枠を返却し、ボタンを復活させて再挑戦できるようにする
+        # (枠を消費したまま無反応で終わる状態を避ける)。
+        quiz_log.clear_addon_used(user_id, target_lang, db_path=db_path)
+        retry_view = poster.AddonView(user_id, target_lang, explanation_lang)
+        msg = (
+            "ごめん、うまく作れなかった…。もう一度選んでみて。"
+            if is_ja
+            else "Sorry, I couldn't make them. Pick again."
+        )
+        await interaction.edit_original_response(content=msg, view=retry_view)
+        return
+
+    done = (
+        f"追加クイズを {posted} 問出したよ! 下から答えてね。"
+        if is_ja
+        else f"Here are {posted} more quiz(zes)! Answer below."
+    )
+    await interaction.edit_original_response(content=done)

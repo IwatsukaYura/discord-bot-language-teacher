@@ -134,6 +134,26 @@ class TestAddonAllowance:
             )
             assert cursor.fetchone()[0] == 1
 
+    def test_clear_restores_allowance(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        quiz_log.init_db(db_path)
+        quiz_log.mark_addon_used("1", "en", db_path=db_path)
+
+        quiz_log.clear_addon_used("1", "en", db_path=db_path)
+
+        assert quiz_log.has_used_addon_today("1", "en", db_path=db_path) is False
+
+    def test_clear_is_scoped_per_user_and_lang(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        quiz_log.init_db(db_path)
+        quiz_log.mark_addon_used("1", "en", db_path=db_path)
+        quiz_log.mark_addon_used("2", "en", db_path=db_path)
+
+        quiz_log.clear_addon_used("1", "en", db_path=db_path)
+
+        assert quiz_log.has_used_addon_today("1", "en", db_path=db_path) is False
+        assert quiz_log.has_used_addon_today("2", "en", db_path=db_path) is True
+
 
 class TestCountUnansweredToday:
     def test_returns_zero_when_no_quizzes(self, tmp_path):

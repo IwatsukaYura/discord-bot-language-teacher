@@ -241,6 +241,21 @@ def mark_addon_used(
         )
 
 
+def clear_addon_used(
+    discord_user_id: str,
+    target_lang: str,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """今日(JST)の追加クイズ枠の消費を取り消す(生成失敗時の返却用)。"""
+    today = datetime.now(JST).date().isoformat()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "DELETE FROM quiz_addon "
+            "WHERE discord_user_id = ? AND target_lang = ? AND used_date = ?",
+            (discord_user_id, target_lang, today),
+        )
+
+
 def get_accuracy_in_range(
     target_lang: str,
     start: datetime,
